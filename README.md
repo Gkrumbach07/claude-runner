@@ -66,7 +66,7 @@ claude-runner/
 ├── backend/           # Go API service using Kubernetes SDK
 ├── operator/          # Kubernetes operator in Go
 ├── claude-runner/     # Python service running Claude with MCP
-├── k8s-manifests/     # Kubernetes deployment manifests
+├── manifests/     # Kubernetes deployment manifests
 └── docs/              # Documentation and setup guides
 ```
 
@@ -104,7 +104,7 @@ docker build --platform=linux/amd64 -t claude-runner:latest ./claude-runner/
 echo -n "your-api-key" | base64  # Use this in secrets.yaml
 
 # Deploy to Kubernetes
-cd k8s-manifests
+cd manifests
 ./deploy.sh
 ```
 

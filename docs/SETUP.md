@@ -68,13 +68,13 @@ docker build -t claude-runner:latest ./claude-runner/
 # Encode your Anthropic API key
 echo -n "your-anthropic-api-key-here" | base64
 
-# Update k8s-manifests/secrets.yaml with the encoded key
+# Update manifests/secrets.yaml with the encoded key
 ```
 
 ### 3. Deploy to Kubernetes
 
 ```bash
-cd k8s-manifests
+cd manifests
 ./deploy.sh
 ```
 
@@ -126,25 +126,25 @@ docker build -t claude-runner:latest .
 
 #### 1. Deploy Custom Resource Definition
 ```bash
-kubectl apply -f k8s-manifests/crd.yaml
+kubectl apply -f manifests/crd.yaml
 ```
 
 #### 2. Deploy RBAC Configuration
 ```bash
-kubectl apply -f k8s-manifests/rbac.yaml
+kubectl apply -f manifests/rbac.yaml
 ```
 
 #### 3. Deploy Secrets and Config
 ```bash
 # Update secrets.yaml with your API key first
-kubectl apply -f k8s-manifests/secrets.yaml
+kubectl apply -f manifests/secrets.yaml
 ```
 
 #### 4. Deploy Services
 ```bash
-kubectl apply -f k8s-manifests/backend-deployment.yaml
-kubectl apply -f k8s-manifests/operator-deployment.yaml
-kubectl apply -f k8s-manifests/frontend-deployment.yaml
+kubectl apply -f manifests/backend-deployment.yaml
+kubectl apply -f manifests/operator-deployment.yaml
+kubectl apply -f manifests/frontend-deployment.yaml
 ```
 
 ### Verification
@@ -194,7 +194,7 @@ kubectl logs -l app=frontend
 The application uses Kubernetes secrets for sensitive data:
 
 ```yaml
-# k8s-manifests/secrets.yaml
+# manifests/secrets.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -294,7 +294,7 @@ kind load docker-image research-operator:latest --name claude-research
 kind load docker-image claude-runner:latest --name claude-research
 
 # Deploy
-cd k8s-manifests
+cd manifests
 ./deploy.sh
 ```
 

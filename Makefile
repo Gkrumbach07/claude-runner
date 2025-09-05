@@ -70,30 +70,30 @@ dev-operator: ## Start operator in development mode
 # Kubernetes deployment
 deploy: ## Deploy all components to Kubernetes
 	@echo "Deploying to Kubernetes..."
-	cd k8s-manifests && ./deploy.sh
+	cd manifests && ./deploy.sh
 
 deploy-crd: ## Deploy only the Custom Resource Definition
-	kubectl apply -f k8s-manifests/crd.yaml
+	kubectl apply -f manifests/crd.yaml
 
 deploy-rbac: ## Deploy only RBAC configuration
-	kubectl apply -f k8s-manifests/rbac.yaml
+	kubectl apply -f manifests/rbac.yaml
 
 deploy-secrets: ## Deploy secrets and config
-	kubectl apply -f k8s-manifests/secrets.yaml
+	kubectl apply -f manifests/secrets.yaml
 
 deploy-backend: ## Deploy only the backend service
-	kubectl apply -f k8s-manifests/backend-deployment.yaml
+	kubectl apply -f manifests/backend-deployment.yaml
 
 deploy-operator: ## Deploy only the operator
-	kubectl apply -f k8s-manifests/operator-deployment.yaml
+	kubectl apply -f manifests/operator-deployment.yaml
 
 deploy-frontend: ## Deploy only the frontend
-	kubectl apply -f k8s-manifests/frontend-deployment.yaml
+	kubectl apply -f manifests/frontend-deployment.yaml
 
 # Cleanup
 clean: ## Clean up all Kubernetes resources
 	@echo "Cleaning up Kubernetes resources..."
-	cd k8s-manifests && ./deploy.sh clean
+	cd manifests && ./deploy.sh clean
 
 # Status and monitoring
 status: ## Show deployment status
