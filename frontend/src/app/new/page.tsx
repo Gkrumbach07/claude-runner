@@ -36,8 +36,7 @@ import {
 } from "@/components/ui/select";
 import { CreateResearchSessionRequest } from "@/types/research-session";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+import { getApiUrl } from "@/lib/config";
 
 const formSchema = z.object({
   prompt: z.string().min(10, "Prompt must be at least 10 characters long"),
@@ -89,7 +88,8 @@ export default function NewResearchSessionPage() {
         timeout: values.timeout,
       };
 
-      const response = await fetch(`${API_BASE_URL}/research-sessions`, {
+      const apiUrl = getApiUrl();
+    const response = await fetch(`${apiUrl}/research-sessions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

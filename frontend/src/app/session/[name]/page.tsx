@@ -27,8 +27,7 @@ import {
   ResearchSessionPhase,
 } from "@/types/research-session";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+import { getApiUrl } from "@/lib/config";
 
 const getPhaseColor = (phase: ResearchSessionPhase) => {
   switch (phase) {
@@ -56,7 +55,7 @@ export default function SessionDetailPage() {
   const fetchSession = useCallback(async () => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/research-sessions/${sessionName}`
+        `${getApiUrl()}/research-sessions/${sessionName}`
       );
       if (!response.ok) {
         if (response.status === 404) {

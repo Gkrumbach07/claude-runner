@@ -25,9 +25,7 @@ import {
   ResearchSessionPhase,
 } from "@/types/research-session";
 import { Plus, RefreshCw } from "lucide-react";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+import { getApiUrl } from "@/lib/config";
 
 const getPhaseColor = (phase: ResearchSessionPhase) => {
   switch (phase) {
@@ -51,7 +49,8 @@ export default function HomePage() {
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/research-sessions`);
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/research-sessions`);
       if (!response.ok) {
         throw new Error("Failed to fetch research sessions");
       }
