@@ -18,7 +18,7 @@ spec:
       serviceAccountName: research-operator
       containers:
       - name: research-operator
-        image: research-operator:latest
+        image: quay.io/gkrumbach07/research-operator:latest
         env:
         - name: NAMESPACE
           valueFrom:
@@ -26,6 +26,8 @@ spec:
               fieldPath: metadata.namespace
         - name: BACKEND_API_URL
           value: "http://backend-service:8080/api"
+        - name: CLAUDE_RUNNER_IMAGE
+          value: "quay.io/gkrumbach07/claude-runner:latest"
         resources:
           requests:
             cpu: 50m

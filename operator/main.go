@@ -22,9 +22,10 @@ import (
 )
 
 var (
-	k8sClient     *kubernetes.Clientset
-	dynamicClient dynamic.Interface
-	namespace     string
+	k8sClient         *kubernetes.Clientset
+	dynamicClient     dynamic.Interface
+	namespace         string
+	claudeRunnerImage string
 )
 
 func main() {
@@ -39,7 +40,14 @@ func main() {
 		namespace = "default"
 	}
 
+	// Get claude-runner image from environment or use default
+	claudeRunnerImage = os.Getenv("CLAUDE_RUNNER_IMAGE")
+	if claudeRunnerImage == "" {
+		claudeRunnerImage = "quay.io/gkrumbach07/claude-runner:latest"
+	}
+
 	log.Printf("Research Session Operator starting in namespace: %s", namespace)
+	log.Printf("Using claude-runner image: %s", claudeRunnerImage)
 
 	// Start watching ResearchSession resources
 	go watchResearchSessions()
@@ -179,7 +187,7 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 					Containers: []corev1.Container{
 						{
 							Name:  "claude-runner",
-							Image: "claude-runner:latest", // This will be built separately
+							Image: claudeRunnerImage,
 							Env: []corev1.EnvVar{
 								{
 									Name:  "RESEARCH_SESSION_NAME",

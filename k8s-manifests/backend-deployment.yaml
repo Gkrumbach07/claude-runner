@@ -18,7 +18,7 @@ spec:
       serviceAccountName: backend-api
       containers:
       - name: backend-api
-        image: claude-runner-backend:latest
+        image: quay.io/gkrumbach07/claude-runner-backend:latest
         ports:
         - containerPort: 8080
           name: http
