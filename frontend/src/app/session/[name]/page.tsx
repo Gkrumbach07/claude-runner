@@ -1,0 +1,336 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
+import { formatDistanceToNow, format } from "date-fns";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  RefreshCw,
+  ExternalLink,
+  Clock,
+  Globe,
+  Brain,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  ResearchSession,
+  ResearchSessionPhase,
+} from "@/types/research-session";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+
+const getPhaseColor = (phase: ResearchSessionPhase) => {
+  switch (phase) {
+    case "Pending":
+      return "bg-yellow-100 text-yellow-800";
+    case "Running":
+      return "bg-blue-100 text-blue-800";
+    case "Completed":
+      return "bg-green-100 text-green-800";
+    case "Failed":
+      return "bg-red-100 text-red-800";
+    default:
+      return "bg-gray-100 text-gray-800";
+  }
+};
+
+export default function SessionDetailPage() {
+  const params = useParams();
+  const sessionName = params.name as string;
+
+  const [session, setSession] = useState<ResearchSession | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSession = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/research-sessions/${sessionName}`
+      );
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Research session not found");
+        }
+        throw new Error("Failed to fetch research session");
+      }
+      const data = await response.json();
+      setSession(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionName]);
+
+  useEffect(() => {
+    if (sessionName) {
+      fetchSession();
+      // Poll for updates every 5 seconds if the session is still running
+      const interval = setInterval(() => {
+        if (
+          session?.status?.phase === "Pending" ||
+          session?.status?.phase === "Running"
+        ) {
+          fetchSession();
+        }
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [sessionName, session?.status?.phase, fetchSession]);
+
+  const handleRefresh = () => {
+    setLoading(true);
+    fetchSession();
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw className="animate-spin h-8 w-8" />
+          <span className="ml-2">Loading research session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex items-center mb-6">
+          <Link href="/">
+            <Button variant="ghost" size="sm">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Sessions
+            </Button>
+          </Link>
+        </div>
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="pt-6">
+            <p className="text-red-700">
+              Error: {error || "Session not found"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto p-6 max-w-4xl">
+      <div className="flex items-center justify-between mb-6">
+        <Link href="/">
+          <Button variant="ghost" size="sm">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Sessions
+          </Button>
+        </Link>
+        <Button variant="outline" onClick={handleRefresh} disabled={loading}>
+          <RefreshCw
+            className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
+          />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="space-y-6">
+        {/* Header */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-2xl">
+                  {session.metadata.name}
+                </CardTitle>
+                <CardDescription>
+                  Created{" "}
+                  {formatDistanceToNow(
+                    new Date(session.metadata.creationTimestamp),
+                    { addSuffix: true }
+                  )}
+                </CardDescription>
+              </div>
+              <Badge
+                className={getPhaseColor(session.status?.phase || "Pending")}
+              >
+                {session.status?.phase || "Pending"}
+              </Badge>
+            </div>
+          </CardHeader>
+        </Card>
+
+        {/* Session Details */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Brain className="w-5 h-5 mr-2" />
+                Research Prompt
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="whitespace-pre-wrap text-sm">
+                {session.spec.prompt}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Globe className="w-5 h-5 mr-2" />
+                Target Website
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center space-x-2">
+                <a
+                  href={session.spec.websiteURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline flex items-center"
+                >
+                  {session.spec.websiteURL}
+                  <ExternalLink className="w-4 h-4 ml-1" />
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Configuration */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Configuration</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="font-semibold">Model</p>
+                <p className="text-muted-foreground">
+                  {session.spec.llmSettings.model}
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold">Temperature</p>
+                <p className="text-muted-foreground">
+                  {session.spec.llmSettings.temperature}
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold">Max Tokens</p>
+                <p className="text-muted-foreground">
+                  {session.spec.llmSettings.maxTokens}
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold">Timeout</p>
+                <p className="text-muted-foreground">{session.spec.timeout}s</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Status Information */}
+        {session.status && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Clock className="w-5 h-5 mr-2" />
+                Execution Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {session.status.message && (
+                  <div>
+                    <p className="font-semibold text-sm">Status Message</p>
+                    <p className="text-sm text-muted-foreground">
+                      {session.status.message}
+                    </p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  {session.status.startTime && (
+                    <div>
+                      <p className="font-semibold">Started</p>
+                      <p className="text-muted-foreground">
+                        {format(new Date(session.status.startTime), "PPp")}
+                      </p>
+                    </div>
+                  )}
+
+                  {session.status.completionTime && (
+                    <div>
+                      <p className="font-semibold">Completed</p>
+                      <p className="text-muted-foreground">
+                        {format(new Date(session.status.completionTime), "PPp")}
+                      </p>
+                    </div>
+                  )}
+
+                  {session.status.jobName && (
+                    <div>
+                      <p className="font-semibold">Kubernetes Job</p>
+                      <p className="text-muted-foreground font-mono text-xs">
+                        {session.status.jobName}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Research Results */}
+        {session.status?.finalOutput && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Research Results</CardTitle>
+              <CardDescription>
+                Claude&apos;s analysis of the target website
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <pre className="whitespace-pre-wrap text-sm font-mono overflow-x-auto">
+                  {session.status.finalOutput}
+                </pre>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Loading state for running sessions */}
+        {(session.status?.phase === "Pending" ||
+          session.status?.phase === "Running") && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="animate-spin h-6 w-6 mr-3" />
+                <span className="text-lg">
+                  {session.status?.phase === "Pending"
+                    ? "Research session is queued and waiting to start..."
+                    : "Claude is analyzing the website..."}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
