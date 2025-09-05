@@ -27,6 +27,9 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
 
+# Set executable permissions
+RUN chmod +x ./main
+
 # Expose port
 EXPOSE 8080
 

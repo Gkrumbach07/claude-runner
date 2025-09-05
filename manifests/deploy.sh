@@ -51,6 +51,13 @@ build_images() {
     fi
 }
 
+# Function to create namespace
+create_namespace() {
+    echo -e "${YELLOW}Creating namespace...${NC}"
+    kubectl apply -f namespace.yaml
+    echo -e "${GREEN}✓ Namespace created${NC}"
+}
+
 # Function to deploy CRD
 deploy_crd() {
     echo -e "${YELLOW}Deploying Custom Resource Definition...${NC}"
@@ -65,17 +72,48 @@ deploy_rbac() {
     echo -e "${GREEN}✓ RBAC deployed${NC}"
 }
 
+# Function to load environment variables from .env file
+load_env_vars() {
+    local env_file="../.env"
+    if [[ ! -f "$env_file" ]]; then
+        echo -e "${RED}Error: .env file not found at $env_file${NC}"
+        echo -e "${YELLOW}Please create .env file from env.example:${NC}"
+        echo "  cp manifests/env.example ../.env"
+        echo "  # Edit ../.env and add your actual API key"
+        exit 1
+    fi
+    
+    # Source the .env file
+    set -a  # automatically export all variables
+    source "$env_file"
+    set +a
+    
+    # Validate required variables
+    if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+        echo -e "${RED}Error: ANTHROPIC_API_KEY not set in .env file${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✓ Environment variables loaded from .env${NC}"
+}
+
 # Function to deploy secrets
 deploy_secrets() {
     echo -e "${YELLOW}Deploying secrets and config...${NC}"
-    echo -e "${RED}Warning: Please update the Anthropic API key in secrets.yaml before deploying!${NC}"
-    read -p "Have you updated the API key in secrets.yaml? (y/N): " confirm
-    if [[ $confirm != [yY] && $confirm != [yY][eE][sS] ]]; then
-        echo -e "${RED}Please update the API key first.${NC}"
-        echo "To encode your API key: echo -n 'your-actual-api-key' | base64"
-        exit 1
-    fi
+    
+    # Load environment variables
+    load_env_vars
+    
+    # Delete existing secret if it exists (ignore errors)
+    kubectl delete secret claude-research-secrets -n claude-research --ignore-not-found=true
+    
+    # Create secret from environment variable
+    kubectl create secret generic claude-research-secrets -n claude-research \
+        --from-literal=anthropic-api-key="$ANTHROPIC_API_KEY"
+    
+    # Apply the ConfigMap
     kubectl apply -f secrets.yaml
+    
     echo -e "${GREEN}✓ Secrets and config deployed${NC}"
 }
 
@@ -103,9 +141,9 @@ deploy_frontend() {
 # Function to wait for deployments
 wait_for_deployments() {
     echo -e "${YELLOW}Waiting for deployments to be ready...${NC}"
-    kubectl wait --for=condition=available --timeout=300s deployment/backend-api
-    kubectl wait --for=condition=available --timeout=300s deployment/research-operator
-    kubectl wait --for=condition=available --timeout=300s deployment/frontend
+    kubectl wait --for=condition=available --timeout=300s deployment/backend-api -n claude-research
+    kubectl wait --for=condition=available --timeout=300s deployment/research-operator -n claude-research
+    kubectl wait --for=condition=available --timeout=300s deployment/frontend -n claude-research
     echo -e "${GREEN}✓ All deployments are ready${NC}"
 }
 
@@ -113,12 +151,12 @@ wait_for_deployments() {
 show_status() {
     echo -e "${BLUE}Deployment Status:${NC}"
     echo "=================="
-    kubectl get pods -l 'app in (backend-api,research-operator,frontend)'
+    kubectl get pods -l 'app in (backend-api,research-operator,frontend)' -n claude-research
     echo ""
-    kubectl get services -l 'app in (backend-api,frontend)'
+    kubectl get services -l 'app in (backend-api,frontend)' -n claude-research
     echo ""
     echo -e "${GREEN}Frontend URL: http://claude-research.local (add to /etc/hosts)${NC}"
-    echo -e "${GREEN}Or use: kubectl port-forward svc/frontend-service 3000:3000${NC}"
+    echo -e "${GREEN}Or use: kubectl port-forward svc/frontend-service 3000:3000 -n claude-research${NC}"
 }
 
 # Main deployment process
@@ -127,8 +165,8 @@ main() {
     
     check_kubectl
     check_cluster
-    build_images
     
+    create_namespace
     deploy_crd
     deploy_rbac
     deploy_secrets
@@ -173,6 +211,7 @@ case "${1:-}" in
         kubectl delete -f secrets.yaml --ignore-not-found
         kubectl delete -f rbac.yaml --ignore-not-found
         kubectl delete -f crd.yaml --ignore-not-found
+        kubectl delete -f namespace.yaml --ignore-not-found
         echo -e "${GREEN}✓ Resources cleaned up${NC}"
         ;;
     *)

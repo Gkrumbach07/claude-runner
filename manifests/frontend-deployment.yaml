@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: default
+  namespace: claude-research
   labels:
     app: frontend
 spec:
@@ -50,7 +50,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend-service
-  namespace: default
+  namespace: claude-research
   labels:
     app: frontend
 spec:
@@ -67,7 +67,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: frontend-ingress
-  namespace: default
+  namespace: claude-research
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:

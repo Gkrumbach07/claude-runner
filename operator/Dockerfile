@@ -27,5 +27,8 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/operator .
 
+# Set executable permissions
+RUN chmod +x ./operator
+
 # Command to run the executable
 CMD ["./operator"]

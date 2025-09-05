@@ -1,4 +1,4 @@
-.PHONY: help build-all build-frontend build-backend build-operator build-runner deploy clean dev-frontend dev-backend lint test
+.PHONY: help setup-env build-all build-frontend build-backend build-operator build-runner deploy clean dev-frontend dev-backend lint test registry-login push-all
 
 # Default target
 help: ## Show this help message
@@ -11,6 +11,7 @@ help: ## Show this help message
 	@echo '  REGISTRY           Container registry for push operations'
 	@echo ''
 	@echo 'Examples:'
+	@echo '  make setup-env                              # Create .env from template'
 	@echo '  make build-all CONTAINER_ENGINE=podman'
 	@echo '  make build-all PLATFORM=linux/amd64'
 	@echo '  make build-all BUILD_FLAGS="--no-cache --pull"'
@@ -67,6 +68,18 @@ dev-backend: ## Start backend in development mode
 dev-operator: ## Start operator in development mode
 	cd operator && go run main.go
 
+# Environment setup
+setup-env: ## Create .env file from template
+	@if [ ! -f .env ]; then \
+		echo "Creating .env file from template..."; \
+		cp manifests/env.example .env; \
+		echo "✓ Created .env file. Please edit it with your actual values:"; \
+		echo "  - Set ANTHROPIC_API_KEY to your actual API key"; \
+		echo "  - Adjust other settings as needed"; \
+	else \
+		echo ".env file already exists"; \
+	fi
+
 # Kubernetes deployment
 deploy: ## Deploy all components to Kubernetes
 	@echo "Deploying to Kubernetes..."
@@ -99,27 +112,27 @@ clean: ## Clean up all Kubernetes resources
 status: ## Show deployment status
 	@echo "Deployment Status:"
 	@echo "=================="
-	kubectl get pods -l 'app in (backend-api,research-operator,frontend)'
+	kubectl get pods -l 'app in (backend-api,research-operator,frontend)' -n claude-research
 	@echo ""
-	kubectl get services -l 'app in (backend-api,frontend)'
+	kubectl get services -l 'app in (backend-api,frontend)' -n claude-research
 	@echo ""
-	kubectl get researchsessions
+	kubectl get researchsessions -n claude-research
 
 logs-backend: ## View backend logs
-	kubectl logs -l app=backend-api -f
+	kubectl logs -l app=backend-api -f -n claude-research
 
 logs-operator: ## View operator logs
-	kubectl logs -l app=research-operator -f
+	kubectl logs -l app=research-operator -f -n claude-research
 
 logs-frontend: ## View frontend logs
-	kubectl logs -l app=frontend -f
+	kubectl logs -l app=frontend -f -n claude-research
 
 # Port forwarding for local access
 port-forward-frontend: ## Port forward frontend service to localhost:3000
-	kubectl port-forward svc/frontend-service 3000:3000
+	kubectl port-forward svc/frontend-service 3000:3000 -n claude-research
 
 port-forward-backend: ## Port forward backend service to localhost:8080
-	kubectl port-forward svc/backend-service 8080:8080
+	kubectl port-forward svc/backend-service 8080:8080 -n claude-research
 
 # Development setup with Kind
 kind-create: ## Create a local Kubernetes cluster with Kind
@@ -181,8 +194,8 @@ install-deps: ## Install development dependencies
 	cd backend && go mod tidy
 	cd operator && go mod tidy
 
-create-namespace: ## Create the default namespace if it doesn't exist
-	kubectl create namespace default --dry-run=client -o yaml | kubectl apply -f -
+create-namespace: ## Create the claude-research namespace if it doesn't exist
+	kubectl apply -f manifests/namespace.yaml
 
 # Example research session
 create-example: ## Create an example research session
@@ -191,6 +204,7 @@ create-example: ## Create an example research session
 	kind: ResearchSession
 	metadata:
 	  name: example-research
+	  namespace: claude-research
 	spec:
 	  prompt: "Analyze this website and provide insights about its design and user experience"
 	  websiteURL: "https://example.com"
