@@ -55,7 +55,7 @@ export default function HomePage() {
         throw new Error("Failed to fetch research sessions");
       }
       const data = await response.json();
-      setSessions(data);
+      setSessions(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -75,7 +75,7 @@ export default function HomePage() {
     fetchSessions();
   };
 
-  if (loading && sessions.length === 0) {
+  if (loading && (!sessions || sessions.length === 0)) {
     return (
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-center h-64">
@@ -127,7 +127,7 @@ export default function HomePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {sessions.length === 0 ? (
+          {!sessions || sessions.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground mb-4">
                 No research sessions found
