@@ -11,6 +11,9 @@ import {
   Clock,
   Globe,
   Brain,
+  Square,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -33,11 +36,17 @@ const getPhaseColor = (phase: ResearchSessionPhase) => {
   switch (phase) {
     case "Pending":
       return "bg-yellow-100 text-yellow-800";
+    case "Creating":
+      return "bg-blue-100 text-blue-800";
     case "Running":
       return "bg-blue-100 text-blue-800";
     case "Completed":
       return "bg-green-100 text-green-800";
     case "Failed":
+      return "bg-red-100 text-red-800";
+    case "Stopped":
+      return "bg-gray-100 text-gray-800";
+    case "Error":
       return "bg-red-100 text-red-800";
     default:
       return "bg-gray-100 text-gray-800";
@@ -51,6 +60,7 @@ export default function SessionDetailPage() {
   const [session, setSession] = useState<ResearchSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchSession = useCallback(async () => {
     try {
@@ -91,6 +101,83 @@ export default function SessionDetailPage() {
   const handleRefresh = () => {
     setLoading(true);
     fetchSession();
+  };
+
+  const handleStop = async () => {
+    if (!session) return;
+    setActionLoading("stopping");
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(
+        `${apiUrl}/research-sessions/${sessionName}/stop`,
+        {
+          method: "POST",
+        }
+      );
+      if (!response.ok) {
+        throw new Error("Failed to stop session");
+      }
+      await fetchSession(); // Refresh the session data
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to stop session");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!session) return;
+    setActionLoading("restarting");
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(
+        `${apiUrl}/research-sessions/${sessionName}/restart`,
+        {
+          method: "POST",
+        }
+      );
+      if (!response.ok) {
+        throw new Error("Failed to restart session");
+      }
+      await fetchSession(); // Refresh the session data
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to restart session"
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!session) return;
+
+    if (
+      !confirm(
+        `Are you sure you want to delete research session "${sessionName}"? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setActionLoading("deleting");
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(
+        `${apiUrl}/research-sessions/${sessionName}/delete`,
+        {
+          method: "DELETE",
+        }
+      );
+      if (!response.ok) {
+        throw new Error("Failed to delete session");
+      }
+      // Redirect back to home after successful deletion
+      window.location.href = "/";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete session");
+      setActionLoading(null);
+    }
   };
 
   if (loading) {
@@ -135,12 +222,87 @@ export default function SessionDetailPage() {
             Back to Sessions
           </Button>
         </Link>
-        <Button variant="outline" onClick={handleRefresh} disabled={loading}>
-          <RefreshCw
-            className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
-          />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleRefresh} disabled={loading}>
+            <RefreshCw
+              className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+
+          {/* Action buttons based on session status */}
+          {session &&
+            (() => {
+              const phase = session.status?.phase || "Pending";
+
+              if (actionLoading) {
+                return (
+                  <Button variant="outline" disabled>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    {actionLoading}
+                  </Button>
+                );
+              }
+
+              const buttons = [];
+
+              // Stop button for Pending/Creating/Running sessions
+              if (
+                phase === "Pending" ||
+                phase === "Creating" ||
+                phase === "Running"
+              ) {
+                buttons.push(
+                  <Button
+                    key="stop"
+                    variant="outline"
+                    onClick={handleStop}
+                    className="text-orange-600 hover:text-orange-700"
+                  >
+                    <Square className="w-4 h-4 mr-2" />
+                    Stop
+                  </Button>
+                );
+              }
+
+              // Restart button for Completed/Failed/Stopped/Error sessions
+              if (
+                phase === "Completed" ||
+                phase === "Failed" ||
+                phase === "Stopped" ||
+                phase === "Error"
+              ) {
+                buttons.push(
+                  <Button
+                    key="restart"
+                    variant="outline"
+                    onClick={handleRestart}
+                    className="text-blue-600 hover:text-blue-700"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Restart
+                  </Button>
+                );
+              }
+
+              // Delete button for all sessions (except running/creating)
+              if (phase !== "Running" && phase !== "Creating") {
+                buttons.push(
+                  <Button
+                    key="delete"
+                    variant="outline"
+                    onClick={handleDelete}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete
+                  </Button>
+                );
+              }
+
+              return buttons;
+            })()}
+        </div>
       </div>
 
       <div className="space-y-6">
@@ -313,8 +475,9 @@ export default function SessionDetailPage() {
           </Card>
         )}
 
-        {/* Loading state for running sessions */}
+        {/* Loading state for active sessions */}
         {(session.status?.phase === "Pending" ||
+          session.status?.phase === "Creating" ||
           session.status?.phase === "Running") && (
           <Card>
             <CardContent className="pt-6">
@@ -323,6 +486,8 @@ export default function SessionDetailPage() {
                 <span className="text-lg">
                   {session.status?.phase === "Pending"
                     ? "Research session is queued and waiting to start..."
+                    : session.status?.phase === "Creating"
+                    ? "Creating Kubernetes job for research session..."
                     : "Claude is analyzing the website..."}
                 </span>
               </div>

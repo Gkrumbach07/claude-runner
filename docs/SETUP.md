@@ -32,8 +32,8 @@ graph TB
         
         subgraph "Job Execution"
             JOB[Kubernetes Job]
-            POD[Claude Runner Pod]
-            MCP[Browser MCP]
+            POD[Claude Runner Pod<br/>Claude Code CLI]
+            MCP[Playwright MCP Server]
         end
     end
     
@@ -116,7 +116,7 @@ go mod tidy
 docker build -t research-operator:latest .
 ```
 
-#### Claude Runner (Python)
+#### Claude Runner (Python with Claude Code CLI)
 ```bash
 cd claude-runner
 docker build -t claude-runner:latest .
@@ -182,12 +182,18 @@ kubectl logs -l app=frontend
 #### Claude Runner
 - `ANTHROPIC_API_KEY`: Your Anthropic API key (required)
 - `RESEARCH_SESSION_NAME`: Name of the research session
-- `PROMPT`: Research prompt
+- `PROMPT`: Research prompt passed directly to Claude Code CLI
 - `WEBSITE_URL`: Website to analyze
 - `LLM_MODEL`: Claude model to use
 - `LLM_TEMPERATURE`: Model temperature
 - `LLM_MAX_TOKENS`: Maximum tokens
 - `TIMEOUT`: Execution timeout
+
+**Technical Implementation:**
+- Uses Claude Code CLI with integrated Playwright MCP server
+- Prompts are passed directly via `--prompt` flag (no temp files)
+- MCP server configuration is loaded from `.mcp.json`
+- Browser automation runs in headless Chrome with vision capabilities
 
 ### Secrets Management
 
@@ -300,7 +306,7 @@ cd manifests
 
 ## Next Steps
 
-1. **Browser MCP Integration**: Currently the Browser MCP integration is simulated. Implement actual Browser MCP client.
+1. **Session Management**: Add pause/resume and better session control features.
 2. **Monitoring**: Add Prometheus metrics and Grafana dashboards.
 3. **Persistence**: Add database for storing research results long-term.
 4. **Authentication**: Add user authentication and authorization.

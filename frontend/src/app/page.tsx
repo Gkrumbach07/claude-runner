@@ -24,13 +24,29 @@ import {
   ResearchSession,
   ResearchSessionPhase,
 } from "@/types/research-session";
-import { Plus, RefreshCw, Square, RotateCcw, Trash2 } from "lucide-react";
+import {
+  Plus,
+  RefreshCw,
+  Square,
+  RotateCcw,
+  Trash2,
+  MoreHorizontal,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getApiUrl } from "@/lib/config";
 
 const getPhaseColor = (phase: ResearchSessionPhase) => {
   switch (phase) {
     case "Pending":
       return "bg-yellow-100 text-yellow-800";
+    case "Creating":
+      return "bg-blue-100 text-blue-800";
     case "Running":
       return "bg-blue-100 text-blue-800";
     case "Completed":
@@ -39,6 +55,8 @@ const getPhaseColor = (phase: ResearchSessionPhase) => {
       return "bg-red-100 text-red-800";
     case "Stopped":
       return "bg-gray-100 text-gray-800";
+    case "Error":
+      return "bg-red-100 text-red-800";
     default:
       return "bg-gray-100 text-gray-800";
   }
@@ -182,7 +200,7 @@ export default function HomePage() {
         <div>
           <h1 className="text-3xl font-bold">Research Sessions</h1>
           <p className="text-muted-foreground mt-2">
-            Manage your Claude research jobs with Browser MCP integration
+            Manage your Claude research jobs
           </p>
         </div>
         <div className="flex gap-2">
@@ -230,137 +248,166 @@ export default function HomePage() {
               </Link>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Website</TableHead>
-                  <TableHead>Model</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sessions.map((session) => (
-                  <TableRow key={session.metadata.uid}>
-                    <TableCell className="font-medium">
-                      {session.metadata.name}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={getPhaseColor(
-                          session.status?.phase || "Pending"
-                        )}
-                      >
-                        {session.status?.phase || "Pending"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <a
-                        href={session.spec.websiteURL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline max-w-xs truncate block"
-                      >
-                        {session.spec.websiteURL}
-                      </a>
-                    </TableCell>
-                    <TableCell>{session.spec.llmSettings.model}</TableCell>
-                    <TableCell>
-                      {formatDistanceToNow(
-                        new Date(session.metadata.creationTimestamp),
-                        {
-                          addSuffix: true,
-                        }
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        {/* Always show View Details button */}
-                        <Link href={`/session/${session.metadata.name}`}>
-                          <Button variant="outline" size="sm">
-                            View Details
-                          </Button>
-                        </Link>
-
-                        {/* Show action buttons based on status */}
-                        {(() => {
-                          const sessionName = session.metadata.name;
-                          const currentAction = actionLoading[sessionName];
-                          const phase = session.status?.phase || "Pending";
-
-                          if (currentAction) {
-                            return (
-                              <Button variant="outline" size="sm" disabled>
-                                <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                                {currentAction}
-                              </Button>
-                            );
-                          }
-
-                          const buttons = [];
-
-                          // Stop button for Pending/Running sessions
-                          if (phase === "Pending" || phase === "Running") {
-                            buttons.push(
-                              <Button
-                                key="stop"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleStop(sessionName)}
-                                className="text-orange-600 hover:text-orange-700"
-                              >
-                                <Square className="w-3 h-3 mr-1" />
-                                Stop
-                              </Button>
-                            );
-                          }
-
-                          // Restart button for Completed/Failed/Stopped sessions
-                          if (
-                            phase === "Completed" ||
-                            phase === "Failed" ||
-                            phase === "Stopped"
-                          ) {
-                            buttons.push(
-                              <Button
-                                key="restart"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleRestart(sessionName)}
-                                className="text-blue-600 hover:text-blue-700"
-                              >
-                                <RotateCcw className="w-3 h-3 mr-1" />
-                                Restart
-                              </Button>
-                            );
-                          }
-
-                          // Delete button for all sessions (except running)
-                          if (phase !== "Running") {
-                            buttons.push(
-                              <Button
-                                key="delete"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete(sessionName)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="w-3 h-3 mr-1" />
-                                Delete
-                              </Button>
-                            );
-                          }
-
-                          return buttons;
-                        })()}
-                      </div>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[180px]">Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="min-w-[120px]">Website</TableHead>
+                    <TableHead className="hidden md:table-cell">
+                      Model
+                    </TableHead>
+                    <TableHead className="hidden lg:table-cell">
+                      Created
+                    </TableHead>
+                    <TableHead className="w-[50px]">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {sessions.map((session) => (
+                    <TableRow key={session.metadata.uid}>
+                      <TableCell className="font-medium min-w-[180px]">
+                        <Link
+                          href={`/session/${session.metadata.name}`}
+                          className="text-blue-600 hover:underline hover:text-blue-800 transition-colors"
+                        >
+                          {session.metadata.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={getPhaseColor(
+                            session.status?.phase || "Pending"
+                          )}
+                        >
+                          {session.status?.phase || "Pending"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="min-w-[120px]">
+                        <a
+                          href={session.spec.websiteURL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline max-w-[200px] truncate block"
+                        >
+                          {session.spec.websiteURL}
+                        </a>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <span className="text-sm text-gray-600 truncate max-w-[120px] block">
+                          {session.spec.llmSettings.model}
+                        </span>
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {formatDistanceToNow(
+                          new Date(session.metadata.creationTimestamp),
+                          {
+                            addSuffix: true,
+                          }
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                            >
+                              {actionLoading[session.metadata.name] ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <MoreHorizontal className="h-4 w-4" />
+                              )}
+                              <span className="sr-only">Open menu</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {(() => {
+                              const sessionName = session.metadata.name;
+                              const currentAction = actionLoading[sessionName];
+                              const phase = session.status?.phase || "Pending";
+
+                              if (currentAction) {
+                                return (
+                                  <DropdownMenuItem disabled>
+                                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                                    {currentAction}
+                                  </DropdownMenuItem>
+                                );
+                              }
+
+                              const items = [];
+
+                              // Stop action for Pending/Creating/Running sessions
+                              if (
+                                phase === "Pending" ||
+                                phase === "Creating" ||
+                                phase === "Running"
+                              ) {
+                                items.push(
+                                  <DropdownMenuItem
+                                    key="stop"
+                                    onClick={() => handleStop(sessionName)}
+                                    className="text-orange-600"
+                                  >
+                                    <Square className="mr-2 h-4 w-4" />
+                                    Stop
+                                  </DropdownMenuItem>
+                                );
+                              }
+
+                              // Restart action for Completed/Failed/Stopped/Error sessions
+                              if (
+                                phase === "Completed" ||
+                                phase === "Failed" ||
+                                phase === "Stopped" ||
+                                phase === "Error"
+                              ) {
+                                items.push(
+                                  <DropdownMenuItem
+                                    key="restart"
+                                    onClick={() => handleRestart(sessionName)}
+                                    className="text-blue-600"
+                                  >
+                                    <RotateCcw className="mr-2 h-4 w-4" />
+                                    Restart
+                                  </DropdownMenuItem>
+                                );
+                              }
+
+                              // Separator before delete if other actions exist
+                              if (items.length > 0) {
+                                items.push(
+                                  <DropdownMenuSeparator key="separator" />
+                                );
+                              }
+
+                              // Delete action for all sessions (except running/creating)
+                              if (phase !== "Running" && phase !== "Creating") {
+                                items.push(
+                                  <DropdownMenuItem
+                                    key="delete"
+                                    onClick={() => handleDelete(sessionName)}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                );
+                              }
+
+                              return items;
+                            })()}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

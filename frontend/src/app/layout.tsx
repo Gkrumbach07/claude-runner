@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Claude Research Runner",
   description:
-    "Kubernetes application for running automated research sessions with Claude and Browser MCP",
+    "Kubernetes application for running automated research sessions with Claude Code",
 };
 
 export default function RootLayout({

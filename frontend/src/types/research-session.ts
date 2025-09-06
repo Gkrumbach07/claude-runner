@@ -1,4 +1,4 @@
-export type ResearchSessionPhase = "Pending" | "Running" | "Completed" | "Failed" | "Stopped";
+export type ResearchSessionPhase = "Pending" | "Creating" | "Running" | "Completed" | "Failed" | "Stopped" | "Error";
 
 export type LLMSettings = {
 	model: string;

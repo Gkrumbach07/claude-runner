@@ -170,6 +170,44 @@ Delete a research session.
 - `404 Not Found`: Research session not found
 - `500 Internal Server Error`: Failed to delete research session
 
+#### POST /research-sessions/{name}/stop
+
+Stop a running research session.
+
+**Parameters:**
+- `name` (path): The name of the research session
+
+**Response:**
+```json
+{
+  "message": "Research session stopped successfully"
+}
+```
+
+**Error Responses:**
+- `404 Not Found`: Research session not found
+- `400 Bad Request`: Session is not in a stoppable state
+- `500 Internal Server Error`: Failed to stop research session
+
+#### POST /research-sessions/{name}/restart
+
+Restart a stopped or failed research session.
+
+**Parameters:**
+- `name` (path): The name of the research session
+
+**Response:**
+```json
+{
+  "message": "Research session restarted successfully"
+}
+```
+
+**Error Responses:**
+- `404 Not Found`: Research session not found
+- `400 Bad Request`: Session is not in a restartable state
+- `500 Internal Server Error`: Failed to restart research session
+
 #### PUT /research-sessions/{name}/status
 
 Update the status of a research session. This endpoint is primarily used by the Claude runner pods to update their progress.
@@ -223,7 +261,7 @@ Update the status of a research session. This endpoint is primarily used by the 
 
 ```json
 {
-  "phase": "string (Pending|Running|Completed|Failed)",
+  "phase": "string (Pending|Running|Completed|Failed|Stopped)",
   "message": "string",
   "startTime": "string (ISO 8601)",
   "completionTime": "string (ISO 8601)",
@@ -231,6 +269,13 @@ Update the status of a research session. This endpoint is primarily used by the 
   "finalOutput": "string"
 }
 ```
+
+**Status Phases:**
+- `Pending`: Research session created but not yet started
+- `Running`: Claude Code is actively analyzing the website
+- `Completed`: Research session finished successfully
+- `Failed`: Research session encountered an error
+- `Stopped`: Research session was manually stopped
 
 ## Error Handling
 
@@ -283,6 +328,18 @@ curl http://backend-service:8080/api/research-sessions
 
 ```bash
 curl http://backend-service:8080/api/research-sessions/research-session-1234567890
+```
+
+### Stop a Research Session
+
+```bash
+curl -X POST http://backend-service:8080/api/research-sessions/research-session-1234567890/stop
+```
+
+### Restart a Research Session
+
+```bash
+curl -X POST http://backend-service:8080/api/research-sessions/research-session-1234567890/restart
 ```
 
 ### Update Research Session Status (Internal Use)

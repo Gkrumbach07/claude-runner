@@ -174,12 +174,13 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 			},
 			OwnerReferences: []v1.OwnerReference{
 				{
-					APIVersion:         "research.example.com/v1",
-					Kind:               "ResearchSession",
-					Name:               obj.GetName(),
-					UID:                obj.GetUID(),
-					Controller:         boolPtr(true),
-					BlockOwnerDeletion: boolPtr(true),
+					APIVersion: "research.example.com/v1",
+					Kind:       "ResearchSession",
+					Name:       obj.GetName(),
+					UID:        obj.GetUID(),
+					Controller: boolPtr(true),
+					// Remove BlockOwnerDeletion to avoid permission issues
+					// BlockOwnerDeletion: boolPtr(true),
 				},
 			},
 		},
@@ -264,9 +265,25 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 		},
 	}
 
+	// Update status to Creating before attempting job creation
+	if err := updateResearchSessionStatus(name, map[string]interface{}{
+		"phase":   "Creating",
+		"message": "Creating Kubernetes job",
+	}); err != nil {
+		log.Printf("Failed to update ResearchSession status to Creating: %v", err)
+		// Continue anyway
+	}
+
 	// Create the job
 	_, err = k8sClient.BatchV1().Jobs(namespace).Create(context.TODO(), job, v1.CreateOptions{})
 	if err != nil {
+		// Update status to Error if job creation fails
+		if updateErr := updateResearchSessionStatus(name, map[string]interface{}{
+			"phase":   "Error",
+			"message": fmt.Sprintf("Failed to create job: %v", err),
+		}); updateErr != nil {
+			log.Printf("Failed to update ResearchSession status to Error: %v", updateErr)
+		}
 		return fmt.Errorf("failed to create job: %v", err)
 	}
 

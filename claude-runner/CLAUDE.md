@@ -1,16 +1,16 @@
 # Claude Research Runner Project
 
 ## Project Overview
-This is an automated web research system that uses Claude Code with Playwright MCP to perform comprehensive website analysis.
+This is an automated web research system that uses Claude Code CLI with Playwright MCP server integration to perform comprehensive website analysis.
 
 ## Key Components
 - **Python Runner**: Orchestrates the research session and handles status updates
-- **Claude Code CLI**: Executes research with full browser automation capabilities  
-- **Playwright MCP**: Provides headless browser tools for navigation, screenshots, content extraction
+- **Claude Code CLI**: Executes research with integrated MCP server capabilities  
+- **Playwright MCP Server**: Provides headless browser tools via MCP protocol for navigation, screenshots, content extraction
 - **Backend Integration**: Reports progress and results to Kubernetes research session API
 
 ## Research Capabilities
-You have access to advanced browser automation tools through Playwright MCP:
+Claude Code has access to advanced browser automation tools through the integrated Playwright MCP server:
 - Navigate to websites and handle loading/timeouts
 - Take screenshots for visual analysis 
 - Extract text content and metadata
@@ -28,7 +28,8 @@ When conducting research:
 6. **Include actionable insights** - practical recommendations based on findings
 
 ## Technical Notes
-- Container runs headless with optimized Chrome flags
-- Memory allocation: 2GB for Node.js processes
+- Container runs Claude Code CLI with integrated Playwright MCP server
+- Chrome runs headless with optimized flags via MCP server
+- Direct prompt passing eliminates temporary file creation
 - Timeout handling: 5-minute default per research session
-- Vision capabilities enabled for screenshot analysis
+- Vision capabilities enabled for screenshot analysis through MCP

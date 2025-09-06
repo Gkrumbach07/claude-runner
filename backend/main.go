@@ -393,10 +393,14 @@ func stopResearchSession(c *gin.Context) {
 		err := k8sClient.BatchV1().Jobs(namespace).Delete(context.TODO(), jobName, v1.DeleteOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			log.Printf("Failed to delete job %s: %v", jobName, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to stop job"})
-			return
+			// Don't fail the request if job deletion fails - continue with status update
+			log.Printf("Continuing with status update despite job deletion failure")
+		} else {
+			log.Printf("Deleted job %s for research session %s", jobName, name)
 		}
-		log.Printf("Deleted job %s for research session %s", jobName, name)
+	} else {
+		// Handle case where job was never created or jobName is missing
+		log.Printf("No job found to delete for research session %s", name)
 	}
 
 	// Update status to Stopped

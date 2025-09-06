@@ -48,10 +48,12 @@ spec:
                 type: string
                 enum:
                 - "Pending"
+                - "Creating"
                 - "Running"
                 - "Completed"
                 - "Failed"
                 - "Stopped"
+                - "Error"
                 default: "Pending"
               message:
                 type: string

@@ -1,13 +1,13 @@
 ****# Claude Research Runner
 
-A Kubernetes application for running automated research sessions with Claude and Browser MCP integration. This system allows users to create research jobs that use Claude to analyze websites with browser automation capabilities.
+A Kubernetes application for running automated research sessions using Claude Code CLI with integrated MCP server capabilities. This system allows users to create research jobs that use Claude to analyze websites with browser automation through MCP.
 
 ## ✨ Features
 
 - **Web-based UI**: Modern NextJS application with Shadcn UI components
 - **Research Job Management**: Create, monitor, and view results of research sessions
 - **Claude Integration**: Leverages Anthropic's Claude AI for intelligent analysis
-- **Browser MCP Support**: Integrates with Browser MCP for web automation
+- **MCP Integration**: Uses Claude Code CLI with Playwright MCP server for web automation
 - **Kubernetes Native**: Built with Kubernetes Custom Resources and Operators
 - **Scalable Architecture**: Containerized microservices with proper RBAC
 - **Real-time Updates**: Live status updates of research job progress
@@ -27,8 +27,8 @@ graph TB
         
         subgraph "Job Execution"
             JOB[Kubernetes Job]
-            POD[Claude Runner Pod<br/>Python]
-            MCP[Browser MCP<br/>Integration]
+            POD[Claude Runner Pod<br/>Python + Claude Code CLI]
+            MCP[Playwright MCP Server<br/>via Claude Code]
         end
     end
     
@@ -55,8 +55,8 @@ graph TB
 | **Frontend** | NextJS + Shadcn | User interface for managing research sessions |
 | **Backend API** | Go + Gin | REST API for managing Kubernetes Custom Resources |
 | **Research Operator** | Go | Kubernetes operator that watches CRs and creates Jobs |
-| **Claude Runner** | Python | Pod that executes Claude with Browser MCP integration |
-| **Browser MCP** | MCP Protocol | Provides web browsing capabilities to Claude |
+| **Claude Runner** | Python + Claude Code CLI | Pod that executes Claude Code with Playwright MCP server |
+| **Playwright MCP** | MCP Server | Provides browser automation capabilities to Claude Code |
 
 ### Directory Structure
 
@@ -75,8 +75,8 @@ claude-runner/
 1. **Create Session**: User creates a new research session via the web UI
 2. **API Processing**: Backend creates a `ResearchSession` Custom Resource in Kubernetes
 3. **Job Scheduling**: Operator detects the CR and creates a Kubernetes Job
-4. **Execution**: Job runs a pod with Claude and Browser MCP integration
-5. **Analysis**: Claude analyzes the specified website using browser automation
+4. **Execution**: Job runs a pod with Claude Code CLI and Playwright MCP server
+5. **Analysis**: Claude Code analyzes the specified website using MCP browser automation
 6. **Result Storage**: Results are stored back in the Custom Resource
 7. **UI Update**: Frontend displays the completed research session with results
 
@@ -123,11 +123,17 @@ kubectl port-forward svc/frontend-service 3000:3000
 **Claude Runner Pod:**
 - `ANTHROPIC_API_KEY`: Your Anthropic API key (required)
 - `RESEARCH_SESSION_NAME`: Name of the research session
-- `PROMPT`: Research prompt for Claude
+- `PROMPT`: Research prompt for Claude Code
 - `WEBSITE_URL`: Website to analyze
 - `LLM_MODEL`: Claude model to use (default: claude-3-5-sonnet-20241022)
 - `LLM_TEMPERATURE`: Model temperature (default: 0.7)
 - `LLM_MAX_TOKENS`: Maximum tokens (default: 4000)
+- `TIMEOUT`: Session timeout in seconds (default: 300)
+
+**MCP Configuration:**
+- Playwright MCP server is automatically configured via `.mcp.json`
+- Chrome runs in headless mode with vision capabilities enabled
+- Browser automation tools are available to Claude Code via MCP protocol
 
 ### Supported Claude Models
 - `claude-3-5-sonnet-20241022` (Default)
@@ -203,9 +209,8 @@ kubectl describe researchsession <session-name>
 
 ## 🚧 Roadmap
 
-- [ ] **Real Browser MCP Integration**: Replace simulation with actual Browser MCP
+- [ ] **Session Control**: Add pause/resume functionality for long-running sessions
 - [ ] **Authentication**: Add user authentication and authorization
-- [ ] **Persistence**: Database integration for long-term result storage
 - [ ] **Monitoring**: Prometheus metrics and Grafana dashboards
 - [ ] **WebSocket Support**: Real-time status updates via WebSocket
 - [ ] **Multi-tenancy**: Support for multiple users and organizations
@@ -242,7 +247,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-- [Anthropic](https://www.anthropic.com/) for Claude AI
-- [Browser MCP](https://docs.browsermcp.io/) for web automation capabilities  
+- [Anthropic](https://www.anthropic.com/) for Claude AI and Claude Code CLI
+- [Playwright MCP](https://github.com/microsoft/playwright) for web automation capabilities  
 - [Shadcn/ui](https://ui.shadcn.com/) for beautiful UI components
 - The Kubernetes community for the excellent operator framework

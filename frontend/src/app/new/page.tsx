@@ -89,7 +89,7 @@ export default function NewResearchSessionPage() {
       };
 
       const apiUrl = getApiUrl();
-    const response = await fetch(`${apiUrl}/research-sessions`, {
+      const response = await fetch(`${apiUrl}/research-sessions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -130,8 +130,7 @@ export default function NewResearchSessionPage() {
         <CardHeader>
           <CardTitle>New Research Session</CardTitle>
           <CardDescription>
-            Create a new research session that will analyze a website using
-            Claude and Browser MCP
+            Create a new research session that will analyze a website
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -169,7 +168,7 @@ export default function NewResearchSessionPage() {
                       <Input placeholder="https://example.com" {...field} />
                     </FormControl>
                     <FormDescription>
-                      The website that Claude will analyze using Browser MCP
+                      The website that Claude will analyze
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
