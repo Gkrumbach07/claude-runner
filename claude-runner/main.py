@@ -6,7 +6,6 @@ import logging
 import os
 import sys
 import subprocess
-import tempfile
 import requests
 from typing import Dict, Any
 from datetime import datetime
@@ -101,13 +100,6 @@ class ClaudeRunner:
     async def _run_claude_code(self, prompt: str) -> str:
         """Run Claude Code CLI with the research prompt"""
         try:
-            # Create a temporary file with our prompt
-            with tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".txt"
-            ) as f:
-                f.write(prompt)
-                prompt_file = f.name
-
             # Set up environment with API key
             env = os.environ.copy()
             env["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
@@ -115,15 +107,16 @@ class ClaudeRunner:
             # Run Claude Code CLI
             logger.info("Executing Claude Code CLI...")
 
+            # For interactive mode with MCP servers
             process = await asyncio.create_subprocess_exec(
                 "claude",
-                "--file",
-                prompt_file,
-                "--non-interactive",
+                "--prompt",
+                prompt,  # Pass prompt directly instead of file
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.PIPE,
                 env=env,
-                cwd="/app",
+                cwd="/app",  # This directory must contain .claude file
             )
 
             try:
@@ -156,12 +149,8 @@ class ClaudeRunner:
             logger.error(f"Error running Claude Code: {str(e)}")
             raise
         finally:
-            # Clean up temporary file
-            try:
-                if "prompt_file" in locals():
-                    os.unlink(prompt_file)
-            except:
-                pass
+            # No cleanup needed for interactive mode
+            pass
 
     def _create_research_prompt(self) -> str:
         """Create a comprehensive research prompt for Claude Code with MCP browser instructions"""

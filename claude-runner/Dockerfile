@@ -27,6 +27,8 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # Copy the application files
 COPY main.py .
+COPY CLAUDE.md .
+COPY .mcp.json .
 
 # Make the script executable
 RUN chmod +x main.py
@@ -35,9 +37,6 @@ RUN chmod +x main.py
 RUN useradd --create-home --shell /bin/bash claude
 RUN chown -R claude:claude /app
 USER claude
-
-# Set up Playwright MCP for Claude Code
-RUN claude mcp add playwright npx '@playwright/mcp@latest'
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

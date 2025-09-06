@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "playwright": {
+      "type": "stdio",
       "command": "npx",
       "args": [
         "@playwright/mcp",
@@ -10,9 +11,7 @@
         "--caps",
         "vision"
       ],
-      "env": {
-        "NODE_OPTIONS": "--max-old-space-size=2048"
-      }
+      "env": {}
     }
   }
 }
