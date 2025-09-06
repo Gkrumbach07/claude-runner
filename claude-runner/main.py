@@ -113,6 +113,14 @@ class ClaudeRunner:
                 f"Files in /app: {os.listdir('/app') if os.path.exists('/app') else 'Directory not found'}"
             )
 
+            # Check MCP configuration
+            try:
+                with open("/app/.mcp.json", "r") as f:
+                    mcp_config = f.read()
+                logger.info(f"MCP config content: {mcp_config}")
+            except Exception as e:
+                logger.warning(f"Could not read MCP config: {e}")
+
             # Check if Claude Code CLI is available
             try:
                 which_result = subprocess.run(
@@ -149,6 +157,7 @@ class ClaudeRunner:
                 "--dangerously-skip-permissions",  # Skip permission dialogs in container
                 "--mcp-config",
                 "/app/.mcp.json",  # Explicit MCP config
+                "--verbose",  # Enable verbose output to see what's happening
                 prompt,
             ]
             logger.info(
@@ -197,17 +206,44 @@ class ClaudeRunner:
             # Start progress logging task
             progress_task = asyncio.create_task(log_progress())
 
+            # Create tasks to read stdout and stderr in real-time
+            async def read_stream(stream, stream_name):
+                """Read and log stream output in real-time"""
+                buffer = []
+                while True:
+                    try:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        line_text = line.decode().strip()
+                        if line_text:
+                            logger.info(f"Claude Code {stream_name}: {line_text}")
+                            buffer.append(line_text)
+                    except Exception as e:
+                        logger.warning(f"Error reading {stream_name}: {e}")
+                        break
+                return "\n".join(buffer)
+
+            # Start reading both streams
+            stdout_task = asyncio.create_task(read_stream(process.stdout, "stdout"))
+            stderr_task = asyncio.create_task(read_stream(process.stderr, "stderr"))
+
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=self.timeout
-                )
+                # Wait for process to complete
+                await asyncio.wait_for(process.wait(), timeout=self.timeout)
                 progress_task.cancel()
+
+                # Get any remaining output
+                stdout_output = await stdout_task
+                stderr_output = await stderr_task
 
                 elapsed = asyncio.get_event_loop().time() - start_time
                 logger.info(f"Process completed in {elapsed:.1f}s")
 
             except asyncio.TimeoutError:
                 progress_task.cancel()
+                stdout_task.cancel()
+                stderr_task.cancel()
                 logger.error(f"Process timed out after {self.timeout} seconds")
 
                 # Try to get partial output before killing
@@ -223,40 +259,26 @@ class ClaudeRunner:
 
             # Log process results
             logger.info(f"Process return code: {process.returncode}")
-
-            if stderr:
-                stderr_text = stderr.decode().strip()
-                if stderr_text:
-                    logger.info(f"Process stderr: {stderr_text}")
-
-            if stdout:
-                stdout_text = stdout.decode().strip()
-                logger.info(f"Process stdout length: {len(stdout_text)} characters")
-                if len(stdout_text) > 0:
-                    logger.info(
-                        f"Process stdout preview: {stdout_text[:200]}{'...' if len(stdout_text) > 200 else ''}"
-                    )
+            logger.info(f"Process stdout length: {len(stdout_output)} characters")
+            logger.info(f"Process stderr length: {len(stderr_output)} characters")
 
             if process.returncode != 0:
-                error_msg = stderr.decode().strip() if stderr else "Unknown error"
                 logger.error(
                     f"Claude Code process failed with return code {process.returncode}"
                 )
-                logger.error(f"Error details: {error_msg}")
+                logger.error(f"Error details: {stderr_output}")
                 raise RuntimeError(
-                    f"Claude Code failed with return code {process.returncode}: {error_msg}"
+                    f"Claude Code failed with return code {process.returncode}: {stderr_output}"
                 )
 
-            result = stdout.decode().strip() if stdout else ""
-
-            if not result:
+            if not stdout_output:
                 logger.warning("Claude Code returned empty result")
                 raise RuntimeError("Claude Code returned empty result")
 
             logger.info(
-                f"Claude Code completed successfully, output length: {len(result)} characters"
+                f"Claude Code completed successfully, output length: {len(stdout_output)} characters"
             )
-            return result
+            return stdout_output
 
         except Exception as e:
             logger.error(f"Error running Claude Code: {str(e)}")
