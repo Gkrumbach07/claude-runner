@@ -386,6 +386,8 @@ func stopResearchSession(c *gin.Context) {
 		return
 	}
 
+	log.Printf("Attempting to stop research session %s (current phase: %s)", name, currentPhase)
+
 	// Get job name from status
 	jobName, jobExists := status["jobName"].(string)
 	if jobExists && jobName != "" {
@@ -411,11 +413,18 @@ func stopResearchSession(c *gin.Context) {
 	// Update the resource
 	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(context.TODO(), item, v1.UpdateOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			// Session was deleted while we were trying to update it
+			log.Printf("Research session %s was deleted during stop operation", name)
+			c.JSON(http.StatusOK, gin.H{"message": "Research session no longer exists (already deleted)"})
+			return
+		}
 		log.Printf("Failed to update research session status %s: %v", name, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update research session status"})
 		return
 	}
 
+	log.Printf("Successfully stopped research session %s", name)
 	c.JSON(http.StatusOK, gin.H{"message": "Research session stopped successfully"})
 }
 
@@ -470,11 +479,17 @@ func restartResearchSession(c *gin.Context) {
 	// Update the resource
 	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(context.TODO(), item, v1.UpdateOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Printf("Research session %s was deleted during restart operation", name)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Research session no longer exists"})
+			return
+		}
 		log.Printf("Failed to update research session status %s: %v", name, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update research session status"})
 		return
 	}
 
+	log.Printf("Successfully restarted research session %s", name)
 	c.JSON(http.StatusOK, gin.H{"message": "Research session restarted successfully"})
 }
 

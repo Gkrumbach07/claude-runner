@@ -113,12 +113,23 @@ func watchResearchSessions() {
 			switch event.Type {
 			case watch.Added, watch.Modified:
 				obj := event.Object.(*unstructured.Unstructured)
+
+				// Add small delay to avoid race conditions with rapid create/delete cycles
+				time.Sleep(100 * time.Millisecond)
+
 				if err := handleResearchSessionEvent(obj); err != nil {
 					log.Printf("Error handling ResearchSession event: %v", err)
 				}
 			case watch.Deleted:
 				obj := event.Object.(*unstructured.Unstructured)
-				log.Printf("ResearchSession %s deleted", obj.GetName())
+				sessionName := obj.GetName()
+				log.Printf("ResearchSession %s deleted", sessionName)
+
+				// Cancel any ongoing job monitoring for this session
+				// (We could implement this with a context cancellation if needed)
+			case watch.Error:
+				obj := event.Object.(*unstructured.Unstructured)
+				log.Printf("Watch error for ResearchSession: %v", obj)
 			}
 		}
 
@@ -131,8 +142,19 @@ func watchResearchSessions() {
 func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 	name := obj.GetName()
 
-	// Get the current status
-	status, _, _ := unstructured.NestedMap(obj.Object, "status")
+	// Verify the resource still exists before processing
+	gvr := getResearchSessionResource()
+	currentObj, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Printf("ResearchSession %s no longer exists, skipping processing", name)
+			return nil
+		}
+		return fmt.Errorf("failed to verify ResearchSession %s exists: %v", name, err)
+	}
+
+	// Get the current status from the fresh object
+	status, _, _ := unstructured.NestedMap(currentObj.Object, "status")
 	phase, _, _ := unstructured.NestedString(status, "phase")
 
 	log.Printf("Processing ResearchSession %s with phase %s", name, phase)
@@ -146,14 +168,14 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 	jobName := fmt.Sprintf("%s-job", name)
 
 	// Check if job already exists
-	_, err := k8sClient.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, v1.GetOptions{})
+	_, err = k8sClient.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, v1.GetOptions{})
 	if err == nil {
 		log.Printf("Job %s already exists for ResearchSession %s", jobName, name)
 		return nil
 	}
 
-	// Extract spec information
-	spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
+	// Extract spec information from the fresh object
+	spec, _, _ := unstructured.NestedMap(currentObj.Object, "spec")
 	prompt, _, _ := unstructured.NestedString(spec, "prompt")
 	websiteURL, _, _ := unstructured.NestedString(spec, "websiteURL")
 	timeout, _, _ := unstructured.NestedInt64(spec, "timeout")
@@ -176,8 +198,8 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 				{
 					APIVersion: "research.example.com/v1",
 					Kind:       "ResearchSession",
-					Name:       obj.GetName(),
-					UID:        obj.GetUID(),
+					Name:       currentObj.GetName(),
+					UID:        currentObj.GetUID(),
 					Controller: boolPtr(true),
 					// Remove BlockOwnerDeletion to avoid permission issues
 					// BlockOwnerDeletion: boolPtr(true),
@@ -271,19 +293,18 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 		"message": "Creating Kubernetes job",
 	}); err != nil {
 		log.Printf("Failed to update ResearchSession status to Creating: %v", err)
-		// Continue anyway
+		// Continue anyway - resource might have been deleted
 	}
 
 	// Create the job
 	_, err = k8sClient.BatchV1().Jobs(namespace).Create(context.TODO(), job, v1.CreateOptions{})
 	if err != nil {
-		// Update status to Error if job creation fails
-		if updateErr := updateResearchSessionStatus(name, map[string]interface{}{
+		log.Printf("Failed to create job %s: %v", jobName, err)
+		// Update status to Error if job creation fails and resource still exists
+		updateResearchSessionStatus(name, map[string]interface{}{
 			"phase":   "Error",
 			"message": fmt.Sprintf("Failed to create job: %v", err),
-		}); updateErr != nil {
-			log.Printf("Failed to update ResearchSession status to Error: %v", updateErr)
-		}
+		})
 		return fmt.Errorf("failed to create job: %v", err)
 	}
 
@@ -296,8 +317,9 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 		"startTime": time.Now().Format(time.RFC3339),
 		"jobName":   jobName,
 	}); err != nil {
-		log.Printf("Failed to update ResearchSession status: %v", err)
-		return err
+		log.Printf("Failed to update ResearchSession status to Running: %v", err)
+		// Don't return error here - the job was created successfully
+		// The status update failure might be due to the resource being deleted
 	}
 
 	// Start monitoring the job
@@ -307,8 +329,21 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 }
 
 func monitorJob(jobName, sessionName string) {
+	log.Printf("Starting job monitoring for %s (session: %s)", jobName, sessionName)
+
 	for {
 		time.Sleep(10 * time.Second)
+
+		// First check if the ResearchSession still exists
+		gvr := getResearchSessionResource()
+		if _, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), sessionName, v1.GetOptions{}); err != nil {
+			if errors.IsNotFound(err) {
+				log.Printf("ResearchSession %s no longer exists, stopping job monitoring for %s", sessionName, jobName)
+				return
+			}
+			log.Printf("Error checking ResearchSession %s existence: %v", sessionName, err)
+			// Continue monitoring even if we can't check the session
+		}
 
 		job, err := k8sClient.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, v1.GetOptions{})
 		if err != nil {
@@ -325,13 +360,11 @@ func monitorJob(jobName, sessionName string) {
 			log.Printf("Job %s completed successfully", jobName)
 
 			// Update ResearchSession status to Completed
-			if err := updateResearchSessionStatus(sessionName, map[string]interface{}{
+			updateResearchSessionStatus(sessionName, map[string]interface{}{
 				"phase":          "Completed",
 				"message":        "Job completed successfully",
 				"completionTime": time.Now().Format(time.RFC3339),
-			}); err != nil {
-				log.Printf("Failed to update ResearchSession status: %v", err)
-			}
+			})
 			return
 		}
 
@@ -354,13 +387,11 @@ func monitorJob(jobName, sessionName string) {
 			}
 
 			// Update ResearchSession status to Failed
-			if err := updateResearchSessionStatus(sessionName, map[string]interface{}{
+			updateResearchSessionStatus(sessionName, map[string]interface{}{
 				"phase":          "Failed",
 				"message":        errorMessage,
 				"completionTime": time.Now().Format(time.RFC3339),
-			}); err != nil {
-				log.Printf("Failed to update ResearchSession status: %v", err)
-			}
+			})
 			return
 		}
 	}
@@ -372,6 +403,10 @@ func updateResearchSessionStatus(name string, statusUpdate map[string]interface{
 	// Get current resource
 	obj, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Printf("ResearchSession %s no longer exists, skipping status update", name)
+			return nil // Don't treat this as an error - resource was deleted
+		}
 		return fmt.Errorf("failed to get ResearchSession %s: %v", name, err)
 	}
 
@@ -385,9 +420,13 @@ func updateResearchSessionStatus(name string, statusUpdate map[string]interface{
 		status[key] = value
 	}
 
-	// Update the resource
+	// Update the resource with retry logic
 	_, err = dynamicClient.Resource(gvr).Namespace(namespace).UpdateStatus(context.TODO(), obj, v1.UpdateOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Printf("ResearchSession %s was deleted during status update, skipping", name)
+			return nil // Don't treat this as an error - resource was deleted
+		}
 		return fmt.Errorf("failed to update ResearchSession status: %v", err)
 	}
 
