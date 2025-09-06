@@ -4,15 +4,18 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import subprocess
 import requests
+import sys
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
-# Configure logging
+# Configure logging with immediate flush for container visibility
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
@@ -49,7 +52,7 @@ class ClaudeRunner:
                 {
                     "phase": "Running",
                     "message": "Initializing Claude Code with Playwright MCP browser capabilities",
-                    "startTime": datetime.now().isoformat(),
+                    "startTime": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
@@ -76,7 +79,7 @@ class ClaudeRunner:
                 {
                     "phase": "Completed",
                     "message": "Research completed successfully using Claude Code + Playwright MCP",
-                    "completionTime": datetime.now().isoformat(),
+                    "completionTime": datetime.now(timezone.utc).isoformat(),
                     "finalOutput": result,
                 }
             )
@@ -91,7 +94,7 @@ class ClaudeRunner:
                 {
                     "phase": "Failed",
                     "message": f"Research failed: {str(e)}",
-                    "completionTime": datetime.now().isoformat(),
+                    "completionTime": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
@@ -104,52 +107,163 @@ class ClaudeRunner:
             env = os.environ.copy()
             env["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
 
-            # Run Claude Code CLI
-            logger.info("Executing Claude Code CLI...")
+            # Debug: Check working directory and files
+            logger.info(f"Working directory: {os.getcwd()}")
+            logger.info(
+                f"Files in /app: {os.listdir('/app') if os.path.exists('/app') else 'Directory not found'}"
+            )
 
-            # For interactive mode with MCP servers
-            process = await asyncio.create_subprocess_exec(
+            # Check if Claude Code CLI is available
+            try:
+                which_result = subprocess.run(
+                    ["which", "claude"], capture_output=True, text=True
+                )
+                logger.info(
+                    f"Claude CLI location: {which_result.stdout.strip() if which_result.returncode == 0 else 'not found'}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not check Claude CLI location: {e}")
+
+            # Check Claude Code CLI version
+            try:
+                version_result = subprocess.run(
+                    ["claude", "--version"], capture_output=True, text=True, timeout=10
+                )
+                logger.info(
+                    f"Claude CLI version: {version_result.stdout.strip() if version_result.returncode == 0 else 'version check failed'}"
+                )
+                if version_result.stderr:
+                    logger.info(
+                        f"Claude CLI version stderr: {version_result.stderr.strip()}"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not check Claude CLI version: {e}")
+
+            # Use correct Claude CLI syntax with --print for non-interactive output
+            # Add flags for container/automated execution
+            command = [
                 "claude",
-                "--prompt",
-                prompt,  # Pass prompt directly instead of file
+                "--print",
+                "--output-format",
+                "text",
+                "--dangerously-skip-permissions",  # Skip permission dialogs in container
+                "--mcp-config",
+                "/app/.mcp.json",  # Explicit MCP config
+                prompt,
+            ]
+            logger.info(
+                f"Attempting command: claude --print --output-format text --dangerously-skip-permissions --mcp-config /app/.mcp.json '<PROMPT>'"
+            )
+            logger.info(f"Prompt length: {len(prompt)} characters")
+            logger.info(
+                f"API key present: {'Yes' if env.get('ANTHROPIC_API_KEY') else 'No'}"
+            )
+
+            # For non-interactive mode with MCP servers
+            logger.info("Creating subprocess...")
+
+            # Create process with prompt passed as argument (no stdin needed)
+            process = await asyncio.create_subprocess_exec(
+                *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                stdin=asyncio.subprocess.PIPE,
                 env=env,
                 cwd="/app",  # This directory must contain .claude file
             )
+
+            logger.info(f"Process created with PID: {process.pid}")
+            logger.info(
+                "Using --print mode, prompt passed as argument - no stdin interaction needed"
+            )
+
+            # Add progress logging during execution
+            logger.info(
+                f"Waiting for process to complete (timeout: {self.timeout}s)..."
+            )
+            start_time = asyncio.get_event_loop().time()
+
+            async def log_progress():
+                """Log progress periodically with process status"""
+                while process.returncode is None:
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    logger.info(
+                        f"Claude Code process still running... elapsed: {elapsed:.1f}s (PID: {process.pid})"
+                    )
+                    # Note: Manual flush may be redundant due to PYTHONUNBUFFERED=1
+                    await asyncio.sleep(
+                        15
+                    )  # Log every 15 seconds for better visibility
+
+            # Start progress logging task
+            progress_task = asyncio.create_task(log_progress())
 
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(), timeout=self.timeout
                 )
+                progress_task.cancel()
+
+                elapsed = asyncio.get_event_loop().time() - start_time
+                logger.info(f"Process completed in {elapsed:.1f}s")
+
             except asyncio.TimeoutError:
-                process.kill()
+                progress_task.cancel()
+                logger.error(f"Process timed out after {self.timeout} seconds")
+
+                # Try to get partial output before killing
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception as kill_error:
+                    logger.error(f"Error killing process: {kill_error}")
+
                 raise RuntimeError(
                     f"Claude Code execution timed out after {self.timeout} seconds"
                 )
 
+            # Log process results
+            logger.info(f"Process return code: {process.returncode}")
+
+            if stderr:
+                stderr_text = stderr.decode().strip()
+                if stderr_text:
+                    logger.info(f"Process stderr: {stderr_text}")
+
+            if stdout:
+                stdout_text = stdout.decode().strip()
+                logger.info(f"Process stdout length: {len(stdout_text)} characters")
+                if len(stdout_text) > 0:
+                    logger.info(
+                        f"Process stdout preview: {stdout_text[:200]}{'...' if len(stdout_text) > 200 else ''}"
+                    )
+
             if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
+                error_msg = stderr.decode().strip() if stderr else "Unknown error"
+                logger.error(
+                    f"Claude Code process failed with return code {process.returncode}"
+                )
+                logger.error(f"Error details: {error_msg}")
                 raise RuntimeError(
                     f"Claude Code failed with return code {process.returncode}: {error_msg}"
                 )
 
-            result = stdout.decode().strip()
+            result = stdout.decode().strip() if stdout else ""
 
             if not result:
+                logger.warning("Claude Code returned empty result")
                 raise RuntimeError("Claude Code returned empty result")
 
             logger.info(
-                f"Claude Code completed successfully, output length: {len(result)}"
+                f"Claude Code completed successfully, output length: {len(result)} characters"
             )
             return result
 
         except Exception as e:
             logger.error(f"Error running Claude Code: {str(e)}")
+            # Note: PYTHONUNBUFFERED=1 should handle this automatically
             raise
         finally:
-            # No cleanup needed for interactive mode
+            # Note: PYTHONUNBUFFERED=1 should auto-flush
             pass
 
     def _create_research_prompt(self) -> str:
@@ -225,6 +339,8 @@ Remember: You have full browser automation capabilities through MCP - use them t
                 )
             else:
                 logger.info("Session status updated successfully")
+                # Note: Status updates are critical - keep one flush here
+                sys.stdout.flush()
 
         except Exception as e:
             logger.error(f"Error updating session status: {str(e)}")
