@@ -107,186 +107,68 @@ class ClaudeRunner:
             env = os.environ.copy()
             env["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
 
-            # Debug: Check working directory and files
-            logger.info(f"Working directory: {os.getcwd()}")
-            logger.info(
-                f"Files in /app: {os.listdir('/app') if os.path.exists('/app') else 'Directory not found'}"
-            )
+            logger.info("Initializing Claude Code with Playwright MCP...")
 
-            # Check MCP configuration
-            try:
-                with open("/app/.mcp.json", "r") as f:
-                    mcp_config = f.read()
-                logger.info(f"MCP config content: {mcp_config}")
-            except Exception as e:
-                logger.warning(f"Could not read MCP config: {e}")
-
-            # Check if Claude Code CLI is available
-            try:
-                which_result = subprocess.run(
-                    ["which", "claude"], capture_output=True, text=True
-                )
-                logger.info(
-                    f"Claude CLI location: {which_result.stdout.strip() if which_result.returncode == 0 else 'not found'}"
-                )
-            except Exception as e:
-                logger.warning(f"Could not check Claude CLI location: {e}")
-
-            # Check Claude Code CLI version
-            try:
-                version_result = subprocess.run(
-                    ["claude", "--version"], capture_output=True, text=True, timeout=10
-                )
-                logger.info(
-                    f"Claude CLI version: {version_result.stdout.strip() if version_result.returncode == 0 else 'version check failed'}"
-                )
-                if version_result.stderr:
-                    logger.info(
-                        f"Claude CLI version stderr: {version_result.stderr.strip()}"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not check Claude CLI version: {e}")
-
-            # Use correct Claude CLI syntax with --print for non-interactive output
-            # Add flags for container/automated execution
+            # Configure Claude Code CLI command
             command = [
                 "claude",
                 "--print",
                 "--output-format",
                 "text",
-                "--dangerously-skip-permissions",  # Skip permission dialogs in container
+                "--dangerously-skip-permissions",
                 "--mcp-config",
-                "/app/.mcp.json",  # Explicit MCP config
-                "--verbose",  # Enable verbose output to see what's happening
+                "/app/.mcp.json",
                 prompt,
             ]
-            logger.info(
-                f"Attempting command: claude --print --output-format text --dangerously-skip-permissions --mcp-config /app/.mcp.json '<PROMPT>'"
-            )
-            logger.info(f"Prompt length: {len(prompt)} characters")
-            logger.info(
-                f"API key present: {'Yes' if env.get('ANTHROPIC_API_KEY') else 'No'}"
-            )
 
-            # For non-interactive mode with MCP servers
-            logger.info("Creating subprocess...")
+            logger.info(f"Executing Claude Code CLI (prompt: {len(prompt)} chars)...")
 
-            # Create process with prompt passed as argument (no stdin needed)
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            # Execute Claude Code CLI with real-time log forwarding
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout
+                text=True,
+                bufsize=1,  # Line buffered
                 env=env,
-                cwd="/app",  # This directory must contain .claude file
+                cwd="/app",
             )
 
-            logger.info(f"Process created with PID: {process.pid}")
-            logger.info(
-                "Using --print mode, prompt passed as argument - no stdin interaction needed"
-            )
+            output_lines = []
 
-            # Add progress logging during execution
-            logger.info(
-                f"Waiting for process to complete (timeout: {self.timeout}s)..."
-            )
-            start_time = asyncio.get_event_loop().time()
-
-            async def log_progress():
-                """Log progress periodically with process status"""
-                while process.returncode is None:
-                    elapsed = asyncio.get_event_loop().time() - start_time
-                    logger.info(
-                        f"Claude Code process still running... elapsed: {elapsed:.1f}s (PID: {process.pid})"
-                    )
-                    # Note: Manual flush may be redundant due to PYTHONUNBUFFERED=1
-                    await asyncio.sleep(
-                        15
-                    )  # Log every 15 seconds for better visibility
-
-            # Start progress logging task
-            progress_task = asyncio.create_task(log_progress())
-
-            # Create tasks to read stdout and stderr in real-time
-            async def read_stream(stream, stream_name):
-                """Read and log stream output in real-time"""
-                buffer = []
-                while True:
-                    try:
-                        line = await stream.readline()
-                        if not line:
-                            break
-                        line_text = line.decode().strip()
-                        if line_text:
-                            logger.info(f"Claude Code {stream_name}: {line_text}")
-                            buffer.append(line_text)
-                    except Exception as e:
-                        logger.warning(f"Error reading {stream_name}: {e}")
-                        break
-                return "\n".join(buffer)
-
-            # Start reading both streams
-            stdout_task = asyncio.create_task(read_stream(process.stdout, "stdout"))
-            stderr_task = asyncio.create_task(read_stream(process.stderr, "stderr"))
-
+            # Read and forward output in real-time
             try:
-                # Wait for process to complete
-                await asyncio.wait_for(process.wait(), timeout=self.timeout)
-                progress_task.cancel()
+                for line in process.stdout:
+                    line = line.rstrip("\n\r")
+                    if line:
+                        logger.info(f"Claude: {line}")
+                        output_lines.append(line)
 
-                # Get any remaining output
-                stdout_output = await stdout_task
-                stderr_output = await stderr_task
+                return_code = process.wait(timeout=self.timeout)
 
-                elapsed = asyncio.get_event_loop().time() - start_time
-                logger.info(f"Process completed in {elapsed:.1f}s")
-
-            except asyncio.TimeoutError:
-                progress_task.cancel()
-                stdout_task.cancel()
-                stderr_task.cancel()
-                logger.error(f"Process timed out after {self.timeout} seconds")
-
-                # Try to get partial output before killing
-                try:
-                    process.kill()
-                    await process.wait()
-                except Exception as kill_error:
-                    logger.error(f"Error killing process: {kill_error}")
-
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                logger.error(f"Claude Code timed out after {self.timeout} seconds")
                 raise RuntimeError(
-                    f"Claude Code execution timed out after {self.timeout} seconds"
+                    f"Claude Code timed out after {self.timeout} seconds"
                 )
 
-            # Log process results
-            logger.info(f"Process return code: {process.returncode}")
-            logger.info(f"Process stdout length: {len(stdout_output)} characters")
-            logger.info(f"Process stderr length: {len(stderr_output)} characters")
+            if return_code != 0:
+                logger.error(f"Claude Code failed with return code {return_code}")
+                raise RuntimeError(f"Claude Code failed with return code {return_code}")
 
-            if process.returncode != 0:
-                logger.error(
-                    f"Claude Code process failed with return code {process.returncode}"
-                )
-                logger.error(f"Error details: {stderr_output}")
-                raise RuntimeError(
-                    f"Claude Code failed with return code {process.returncode}: {stderr_output}"
-                )
-
-            if not stdout_output:
+            output = "\n".join(output_lines)
+            if not output:
                 logger.warning("Claude Code returned empty result")
                 raise RuntimeError("Claude Code returned empty result")
 
-            logger.info(
-                f"Claude Code completed successfully, output length: {len(stdout_output)} characters"
-            )
-            return stdout_output
+            logger.info(f"Claude Code completed successfully ({len(output)} chars)")
+            return output
 
         except Exception as e:
             logger.error(f"Error running Claude Code: {str(e)}")
-            # Note: PYTHONUNBUFFERED=1 should handle this automatically
             raise
-        finally:
-            # Note: PYTHONUNBUFFERED=1 should auto-flush
-            pass
 
     def _create_research_prompt(self) -> str:
         """Create a comprehensive research prompt for Claude Code with MCP browser instructions"""
@@ -361,8 +243,6 @@ Remember: You have full browser automation capabilities through MCP - use them t
                 )
             else:
                 logger.info("Session status updated successfully")
-                # Note: Status updates are critical - keep one flush here
-                sys.stdout.flush()
 
         except Exception as e:
             logger.error(f"Error updating session status: {str(e)}")
