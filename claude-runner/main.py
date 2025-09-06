@@ -5,12 +5,11 @@ import json
 import logging
 import os
 import sys
-from typing import Dict, Any, Optional
+import subprocess
+import tempfile
 import requests
+from typing import Dict, Any
 from datetime import datetime
-
-import anthropic
-from anthropic.types import Message
 
 # Configure logging
 logging.basicConfig(
@@ -25,47 +24,59 @@ class ClaudeRunner:
         self.session_namespace = os.getenv("RESEARCH_SESSION_NAMESPACE", "default")
         self.prompt = os.getenv("PROMPT", "")
         self.website_url = os.getenv("WEBSITE_URL", "")
-        self.model = os.getenv("LLM_MODEL", "claude-3-5-sonnet-20241022")
-        self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
-        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "4000"))
         self.timeout = int(os.getenv("TIMEOUT", "300"))
         self.backend_api_url = os.getenv(
             "BACKEND_API_URL", "http://backend-service:8080/api"
         )
 
-        # Initialize Anthropic client
+        # Validate Anthropic API key for Claude Code
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
 
-        self.anthropic_client = anthropic.Anthropic(api_key=api_key)
-
         logger.info(f"Initialized ClaudeRunner for session: {self.session_name}")
         logger.info(f"Website URL: {self.website_url}")
-        logger.info(f"Model: {self.model}")
+        logger.info("Using Claude Code CLI with Playwright MCP")
 
     async def run_research_session(self):
         """Main method to run the research session"""
         try:
-            logger.info("Starting research session...")
+            logger.info(
+                "Starting research session with Claude Code + Playwright MCP..."
+            )
 
             # Update status to indicate we're starting
             await self.update_session_status(
                 {
                     "phase": "Running",
-                    "message": "Initializing Claude and Browser MCP connection",
+                    "message": "Initializing Claude Code with Playwright MCP browser capabilities",
                     "startTime": datetime.now().isoformat(),
                 }
             )
 
-            # Run the research with Claude and Browser MCP
-            result = await self.run_research_with_claude()
+            # Create comprehensive research prompt for Claude Code with MCP tools
+            research_prompt = self._create_research_prompt()
+
+            # Update status
+            await self.update_session_status(
+                {
+                    "phase": "Running",
+                    "message": f"Claude Code analyzing {self.website_url} with agentic browser automation",
+                }
+            )
+
+            # Run Claude Code with our research prompt
+            logger.info("Running Claude Code with MCP browser automation...")
+
+            result = await self._run_claude_code(research_prompt)
+
+            logger.info("Received comprehensive research analysis from Claude Code")
 
             # Update the session with the final result
             await self.update_session_status(
                 {
                     "phase": "Completed",
-                    "message": "Research completed successfully",
+                    "message": "Research completed successfully using Claude Code + Playwright MCP",
                     "completionTime": datetime.now().isoformat(),
                     "finalOutput": result,
                 }
@@ -87,54 +98,124 @@ class ClaudeRunner:
 
             sys.exit(1)
 
-    async def run_research_with_claude(self) -> str:
-        """Run research using Claude with Browser MCP integration"""
-
-        # For now, we'll simulate Browser MCP interaction
-        # In a real implementation, this would connect to the Browser MCP server
-        # and perform actual web browsing actions
-
-        enhanced_prompt = f"""
-You are a research assistant that needs to analyze the website: {self.website_url}
-
-Original research prompt: {self.prompt}
-
-Since I cannot directly browse the web in this simulation, I'll provide you with a structured analysis approach:
-
-1. Based on the website URL, I'll analyze what type of site this likely is
-2. Provide insights on what information would typically be found there
-3. Suggest specific research approaches for this type of website
-4. Generate actionable insights based on the research prompt
-
-Website to analyze: {self.website_url}
-Research objective: {self.prompt}
-
-Please provide a comprehensive research analysis as if you had browsed the website using Browser MCP.
-"""
-
+    async def _run_claude_code(self, prompt: str) -> str:
+        """Run Claude Code CLI with the research prompt"""
         try:
-            logger.info("Sending request to Claude...")
+            # Create a temporary file with our prompt
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".txt"
+            ) as f:
+                f.write(prompt)
+                prompt_file = f.name
 
-            message = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.anthropic_client.messages.create(
-                    model=self.model,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    messages=[{"role": "user", "content": enhanced_prompt}],
-                ),
+            # Set up environment with API key
+            env = os.environ.copy()
+            env["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
+
+            # Run Claude Code CLI
+            logger.info("Executing Claude Code CLI...")
+
+            process = await asyncio.create_subprocess_exec(
+                "claude",
+                "--file",
+                prompt_file,
+                "--non-interactive",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd="/app",
             )
 
-            result = (
-                message.content[0].text if message.content else "No response generated"
-            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=self.timeout
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                raise RuntimeError(
+                    f"Claude Code execution timed out after {self.timeout} seconds"
+                )
 
-            logger.info("Received response from Claude")
+            if process.returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                raise RuntimeError(
+                    f"Claude Code failed with return code {process.returncode}: {error_msg}"
+                )
+
+            result = stdout.decode().strip()
+
+            if not result:
+                raise RuntimeError("Claude Code returned empty result")
+
+            logger.info(
+                f"Claude Code completed successfully, output length: {len(result)}"
+            )
             return result
 
         except Exception as e:
-            logger.error(f"Error communicating with Claude: {str(e)}")
+            logger.error(f"Error running Claude Code: {str(e)}")
             raise
+        finally:
+            # Clean up temporary file
+            try:
+                if "prompt_file" in locals():
+                    os.unlink(prompt_file)
+            except:
+                pass
+
+    def _create_research_prompt(self) -> str:
+        """Create a comprehensive research prompt for Claude Code with MCP browser instructions"""
+        return f"""You are a research assistant with browser automation capabilities via Playwright MCP tools. 
+
+RESEARCH OBJECTIVE: {self.prompt}
+
+TARGET WEBSITE: {self.website_url}
+
+INSTRUCTIONS:
+Please use your Playwright MCP browser tools to thoroughly research and analyze the website: {self.website_url}
+
+BROWSER AUTOMATION TASKS:
+1. Navigate to the website and take a snapshot to see what's there
+2. Extract and analyze all text content from the page
+3. Take a screenshot for visual reference
+4. Identify key navigation elements, links, and page structure
+5. Look for forms, interactive elements, or important functionality
+6. Extract metadata (title, description, etc.)
+7. If needed, interact with the page to access additional content or sections
+
+RESEARCH ANALYSIS REQUIREMENTS:
+Based on your browser-based investigation, provide a comprehensive report with:
+
+1. **Website Overview**
+   - Website purpose and main functionality
+   - Target audience and primary use case
+   - Overall design and user experience assessment
+
+2. **Content Analysis** 
+   - Key information and main content themes
+   - Important sections and navigation structure
+   - Notable features or unique functionality
+
+3. **Research Objective Analysis**
+   - How well does this website address: "{self.prompt}"
+   - Specific findings directly relevant to the research question
+   - Key insights and actionable takeaways
+
+4. **Technical & UX Observations**
+   - Page performance and loading characteristics
+   - Visual design and layout assessment
+   - Any technical issues or accessibility concerns
+   - Mobile responsiveness if observable
+
+5. **Recommendations & Strategic Insights**
+   - Actionable recommendations based on findings
+   - Suggested follow-up research areas or questions
+   - Competitive analysis insights if applicable
+   - Overall assessment and conclusion
+
+IMPORTANT: Use your MCP browser tools extensively and agentically. Take screenshots, navigate through sections, and extract comprehensive information before providing your analysis. Be thorough and methodical in your approach.
+
+Remember: You have full browser automation capabilities through MCP - use them to their fullest extent to gather comprehensive data!"""
 
     async def update_session_status(self, status_update: Dict[str, Any]):
         """Update the ResearchSession status via the backend API"""
@@ -161,42 +242,9 @@ Please provide a comprehensive research analysis as if you had browsed the websi
             # Don't raise here as this shouldn't stop the main process
 
 
-class BrowserMCPClient:
-    """Placeholder for Browser MCP client integration"""
-
-    def __init__(self, mcp_server_url: str = "http://browser-mcp:3000"):
-        self.mcp_server_url = mcp_server_url
-        logger.info(
-            f"Browser MCP client initialized (placeholder) - URL: {mcp_server_url}"
-        )
-
-    async def navigate_to_url(self, url: str) -> Dict[str, Any]:
-        """Navigate to a URL and return page information"""
-        # This is a placeholder - in real implementation would connect to Browser MCP
-        logger.info(f"[PLACEHOLDER] Navigating to: {url}")
-        return {
-            "url": url,
-            "title": "Placeholder Title",
-            "content": "Placeholder content - real implementation would extract actual page content",
-            "status": "success",
-        }
-
-    async def extract_text_content(self) -> str:
-        """Extract text content from the current page"""
-        # This is a placeholder - in real implementation would extract actual content
-        logger.info("[PLACEHOLDER] Extracting page content")
-        return "Placeholder page content - real implementation would extract actual page text"
-
-    async def take_screenshot(self) -> str:
-        """Take a screenshot of the current page"""
-        # This is a placeholder - in real implementation would take actual screenshot
-        logger.info("[PLACEHOLDER] Taking screenshot")
-        return "screenshot_placeholder.png"
-
-
 async def main():
     """Main entry point"""
-    logger.info("Claude Research Runner starting...")
+    logger.info("Claude Research Runner with Claude Code + Playwright MCP starting...")
 
     # Validate required environment variables
     required_vars = [

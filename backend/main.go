@@ -56,6 +56,8 @@ func main() {
 		api.POST("/research-sessions", createResearchSession)
 		api.DELETE("/research-sessions/:name", deleteResearchSession)
 		api.PUT("/research-sessions/:name/status", updateResearchSessionStatus)
+		api.POST("/research-sessions/:name/stop", stopResearchSession)
+		api.POST("/research-sessions/:name/restart", restartResearchSession)
 	}
 
 	// Health check endpoint
@@ -353,6 +355,123 @@ func updateResearchSessionStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Research session status updated successfully"})
+}
+
+func stopResearchSession(c *gin.Context) {
+	name := c.Param("name")
+	gvr := getResearchSessionResource()
+
+	// Get current resource
+	item, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Research session not found"})
+			return
+		}
+		log.Printf("Failed to get research session %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get research session"})
+		return
+	}
+
+	// Check current status
+	status, ok := item.Object["status"].(map[string]interface{})
+	if !ok {
+		status = make(map[string]interface{})
+		item.Object["status"] = status
+	}
+
+	currentPhase, _ := status["phase"].(string)
+	if currentPhase == "Completed" || currentPhase == "Failed" || currentPhase == "Stopped" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Cannot stop session in %s state", currentPhase)})
+		return
+	}
+
+	// Get job name from status
+	jobName, jobExists := status["jobName"].(string)
+	if jobExists && jobName != "" {
+		// Delete the job
+		err := k8sClient.BatchV1().Jobs(namespace).Delete(context.TODO(), jobName, v1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			log.Printf("Failed to delete job %s: %v", jobName, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to stop job"})
+			return
+		}
+		log.Printf("Deleted job %s for research session %s", jobName, name)
+	}
+
+	// Update status to Stopped
+	status["phase"] = "Stopped"
+	status["message"] = "Research session stopped by user"
+	status["completionTime"] = time.Now().Format(time.RFC3339)
+
+	// Update the resource
+	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(context.TODO(), item, v1.UpdateOptions{})
+	if err != nil {
+		log.Printf("Failed to update research session status %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update research session status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Research session stopped successfully"})
+}
+
+func restartResearchSession(c *gin.Context) {
+	name := c.Param("name")
+	gvr := getResearchSessionResource()
+
+	// Get current resource
+	item, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Research session not found"})
+			return
+		}
+		log.Printf("Failed to get research session %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get research session"})
+		return
+	}
+
+	// Get current status
+	status, ok := item.Object["status"].(map[string]interface{})
+	if !ok {
+		status = make(map[string]interface{})
+		item.Object["status"] = status
+	}
+
+	currentPhase, _ := status["phase"].(string)
+	if currentPhase == "Running" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot restart session that is currently running. Stop it first."})
+		return
+	}
+
+	// Get job name from status and delete existing job if it exists
+	jobName, jobExists := status["jobName"].(string)
+	if jobExists && jobName != "" {
+		err := k8sClient.BatchV1().Jobs(namespace).Delete(context.TODO(), jobName, v1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			log.Printf("Failed to delete existing job %s: %v", jobName, err)
+		} else {
+			log.Printf("Deleted existing job %s for restart of research session %s", jobName, name)
+		}
+	}
+
+	// Reset status to Pending - this will trigger the operator to create a new job
+	status["phase"] = "Pending"
+	status["message"] = "Research session restarted by user"
+	delete(status, "startTime")
+	delete(status, "completionTime")
+	delete(status, "jobName")
+	delete(status, "finalOutput")
+
+	// Update the resource
+	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(context.TODO(), item, v1.UpdateOptions{})
+	if err != nil {
+		log.Printf("Failed to update research session status %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update research session status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Research session restarted successfully"})
 }
 
 // Helper functions for parsing

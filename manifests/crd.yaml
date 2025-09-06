@@ -51,6 +51,7 @@ spec:
                 - "Running"
                 - "Completed"
                 - "Failed"
+                - "Stopped"
                 default: "Pending"
               message:
                 type: string

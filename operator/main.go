@@ -172,6 +172,16 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 				"research-session": name,
 				"app":              "claude-runner",
 			},
+			OwnerReferences: []v1.OwnerReference{
+				{
+					APIVersion:         "research.example.com/v1",
+					Kind:               "ResearchSession",
+					Name:               obj.GetName(),
+					UID:                obj.GetUID(),
+					Controller:         boolPtr(true),
+					BlockOwnerDeletion: boolPtr(true),
+				},
+			},
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: int32Ptr(3),
@@ -224,6 +234,17 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								{
 									Name:  "BACKEND_API_URL",
 									Value: os.Getenv("BACKEND_API_URL"),
+								},
+								{
+									Name: "ANTHROPIC_API_KEY",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "claude-research-secrets",
+											},
+											Key: "anthropic-api-key",
+										},
+									},
 								},
 							},
 							Resources: corev1.ResourceRequirements{
@@ -358,4 +379,8 @@ func updateResearchSessionStatus(name string, statusUpdate map[string]interface{
 
 func int32Ptr(i int32) *int32 {
 	return &i
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
