@@ -208,68 +208,92 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: int32Ptr(3),
+			// Optional safety timeouts:
+			// ActiveDeadlineSeconds: int64Ptr(900), // 15m wall clock
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
 						"research-session": name,
 						"app":              "claude-runner",
 					},
+					// If you use Istio/Linkerd and want to avoid sidecar in Jobs:
+					// Annotations: map[string]string{"sidecar.istio.io/inject": "false"},
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
+
+					// 🔐 Pod-level security context: allow random UID + group write
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot:   boolPtr(true),
+						FSGroup:        int64Ptr(0), // group 0 matches our g+rw approach
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+					},
+
+					// 🔧 Volumes for /dev/shm and writable HOME
+					Volumes: []corev1.Volume{
+						{
+							Name: "dshm",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{
+									Medium:    corev1.StorageMediumMemory,
+									SizeLimit: resource.NewQuantity(256*1024*1024, resource.BinarySI),
+								},
+							},
+						},
+						{
+							Name: "home",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
+							},
+						},
+					},
+
 					Containers: []corev1.Container{
 						{
 							Name:  "claude-runner",
 							Image: claudeRunnerImage,
+
+							// 📦 Mount SHM + ephemeral HOME
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "dshm", MountPath: "/dev/shm"},
+								{Name: "home", MountPath: "/home/claude"},
+							},
+
 							Env: []corev1.EnvVar{
-								{
-									Name:  "RESEARCH_SESSION_NAME",
-									Value: name,
-								},
-								{
-									Name:  "RESEARCH_SESSION_NAMESPACE",
-									Value: namespace,
-								},
-								{
-									Name:  "PROMPT",
-									Value: prompt,
-								},
-								{
-									Name:  "WEBSITE_URL",
-									Value: websiteURL,
-								},
-								{
-									Name:  "LLM_MODEL",
-									Value: model,
-								},
-								{
-									Name:  "LLM_TEMPERATURE",
-									Value: fmt.Sprintf("%.2f", temperature),
-								},
-								{
-									Name:  "LLM_MAX_TOKENS",
-									Value: fmt.Sprintf("%d", maxTokens),
-								},
-								{
-									Name:  "TIMEOUT",
-									Value: fmt.Sprintf("%d", timeout),
-								},
-								{
-									Name:  "BACKEND_API_URL",
-									Value: os.Getenv("BACKEND_API_URL"),
-								},
+								{Name: "RESEARCH_SESSION_NAME", Value: name},
+								{Name: "RESEARCH_SESSION_NAMESPACE", Value: namespace},
+								{Name: "PROMPT", Value: prompt},
+								{Name: "WEBSITE_URL", Value: websiteURL},
+								{Name: "LLM_MODEL", Value: model},
+								{Name: "LLM_TEMPERATURE", Value: fmt.Sprintf("%.2f", temperature)},
+								{Name: "LLM_MAX_TOKENS", Value: fmt.Sprintf("%d", maxTokens)},
+								{Name: "TIMEOUT", Value: fmt.Sprintf("%d", timeout)},
+								{Name: "BACKEND_API_URL", Value: os.Getenv("BACKEND_API_URL")},
+
+								// 🔑 Secret for Anthropic
 								{
 									Name: "ANTHROPIC_API_KEY",
 									ValueFrom: &corev1.EnvVarSource{
 										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "claude-research-secrets",
-											},
-											Key: "anthropic-api-key",
+											LocalObjectReference: corev1.LocalObjectReference{Name: "claude-research-secrets"},
+											Key:                  "anthropic-api-key",
 										},
 									},
 								},
+
+								// 🧊 Playwright/Chromium stability in pods
+								{Name: "PW_CHROMIUM_ARGS", Value: "--no-sandbox --disable-gpu --disable-dev-shm-usage"},
+
+								// (Optional) keep caches/config out of $HOME (works great for random UIDs)
+								{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
+								{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
+								{Name: "XDG_DATA_HOME", Value: "/tmp/.local/share"},
+
+								// (Optional) proxy support if you have one:
+								// { Name: "HTTPS_PROXY", Value: "http://proxy.corp:3128" },
+								// { Name: "NO_PROXY",    Value: ".svc,.cluster.local,10.0.0.0/8" },
 							},
+
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("1000m"),
@@ -280,6 +304,21 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 									corev1.ResourceMemory: resource.MustParse("4Gi"),
 								},
 							},
+
+							// (Optional) preflight + run: makes network/cert failures obvious
+							// Command: []string{"/bin/bash","-lc"},
+							// Args: []string{`
+							//   set -euo pipefail
+							//   echo "UID/GID:"; id
+							//   echo "HOME: $HOME"
+							//   mkdir -p "$HOME"/.config "$HOME"/.cache "$HOME"/.local/share
+							//   touch "$HOME"/.write_test && echo "HOME writable"
+							//   getent hosts api.anthropic.com || nslookup api.anthropic.com
+							//   python - <<'PY'
+							// import ssl, socket; s=ssl.create_default_context().wrap_socket(socket.socket(), server_hostname="api.anthropic.com"); s.settimeout(5); s.connect(("api.anthropic.com",443)); print("TLS OK")
+							// PY
+							//   exec python -u /app/main.py
+							// `},
 						},
 					},
 				},
@@ -433,10 +472,8 @@ func updateResearchSessionStatus(name string, statusUpdate map[string]interface{
 	return nil
 }
 
-func int32Ptr(i int32) *int32 {
-	return &i
-}
-
-func boolPtr(b bool) *bool {
-	return &b
-}
+var (
+	boolPtr  = func(b bool) *bool { return &b }
+	int32Ptr = func(i int32) *int32 { return &i }
+	int64Ptr = func(i int64) *int64 { return &i }
+)
