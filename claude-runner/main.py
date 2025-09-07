@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
 import asyncio
-import json
 import logging
 import os
-import subprocess
 import requests
 import sys
 from typing import Dict, Any
 from datetime import datetime, timezone
+
+# Import Claude Code Python SDK
+from claude_code_sdk import ClaudeSDKClient, ClaudeCodeOptions
 
 # Configure logging with immediate flush for container visibility
 logging.basicConfig(
@@ -101,121 +102,64 @@ class ClaudeRunner:
             sys.exit(1)
 
     async def _run_claude_code(self, prompt: str) -> str:
-        """Run Claude Code CLI with the research prompt"""
+        """Run Claude Code using Python SDK (no subprocess!)"""
         try:
-            # Set up environment with API key
-            env = os.environ.copy()
-            env["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
+            logger.info("Initializing Claude Code Python SDK...")
 
-            logger.info("Initializing Claude Code with Playwright MCP...")
+            # Configure SDK options from official docs
+            options = ClaudeCodeOptions(
+                system_prompt="You are a research assistant with browser automation capabilities via Playwright MCP tools.",
+                max_turns=3,
+                permission_mode="acceptEdits",  # Handle permissions automatically
+                allowed_tools=["mcp__playwright"],  # Explicit tool permissions
+                mcp_servers="/app/.mcp.json",  # MCP configuration file
+                cwd="/app",
+            )
 
-            # First-time setup: Initialize Claude Code authentication if needed
-            try:
-                # Check if Claude Code is authenticated
-                auth_check = subprocess.run(
-                    ["claude", "config", "list"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    env=env,
+            logger.info(f"Executing Claude Code SDK (prompt: {len(prompt)} chars)...")
+
+            # Use ClaudeSDKClient directly (recommended approach)
+            async with ClaudeSDKClient(options=options) as client:
+                # Send the research prompt
+                await client.query(prompt)
+
+                # Collect streaming response
+                response_text = []
+                cost = 0.0
+                duration = 0
+
+                async for message in client.receive_response():
+                    # Stream content as it arrives
+                    if hasattr(message, "content"):
+                        for block in message.content:
+                            if hasattr(block, "text"):
+                                text = block.text
+                                logger.info(
+                                    f"Claude: {text[:100]}{'...' if len(text) > 100 else ''}"
+                                )
+                                response_text.append(text)
+
+                    # Get final result with metadata
+                    if type(message).__name__ == "ResultMessage":
+                        cost = getattr(message, "total_cost_usd", 0.0)
+                        duration = getattr(message, "duration_ms", 0)
+
+                # Combine response
+                result = "".join(response_text)
+
+                if not result.strip():
+                    raise RuntimeError("Claude Code SDK returned empty result")
+
+                logger.info(
+                    f"Claude Code SDK completed successfully ({len(result)} chars)"
                 )
+                logger.info(f"Cost: ${cost:.4f}")
+                logger.info(f"Duration: {duration}ms")
 
-                if auth_check.returncode != 0:
-                    logger.info("Setting up Claude Code authentication...")
-                    # Initialize Claude Code with API key
-                    setup_result = subprocess.run(
-                        ["claude", "setup-token", "--token", env["ANTHROPIC_API_KEY"]],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                        env=env,
-                    )
-
-                    if setup_result.returncode != 0:
-                        logger.warning(f"Claude setup warning: {setup_result.stderr}")
-                        # Continue anyway - might work with direct API key
-                else:
-                    logger.info("Claude Code already authenticated")
-
-            except Exception as e:
-                logger.warning(f"Could not verify Claude authentication: {e}")
-                # Continue anyway - might work with direct API key
-
-            # Use proper Claude Code CLI approach from official docs
-            command = [
-                "claude",
-                "-p",  # Use -p shorthand for --print (recommended)
-                "--output-format",
-                "json",  # Use JSON for better error handling
-                "--permission-mode",
-                "acceptEdits",  # Handle permissions properly
-                "--allowedTools",
-                "mcp__playwright",  # Explicit tool permissions
-                "--mcp-config",
-                "/app/.mcp.json",
-                "--verbose",  # Enable verbose logging
-                prompt,
-            ]
-
-            logger.info(f"Executing Claude Code CLI (prompt: {len(prompt)} chars)...")
-
-            # Execute with proper timeout and error handling (from SDK docs)
-            try:
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                    env=env,
-                    cwd="/app",
-                    check=False,  # Don't raise on non-zero exit
-                )
-
-                # Log stderr for debugging (common in headless mode)
-                if result.stderr:
-                    logger.info(f"Claude Code stderr: {result.stderr}")
-
-                if result.returncode != 0:
-                    logger.error(
-                        f"Claude Code failed with return code {result.returncode}"
-                    )
-                    logger.error(f"Error details: {result.stderr}")
-                    raise RuntimeError(f"Claude Code failed: {result.stderr}")
-
-                # Parse JSON response (recommended by SDK docs)
-                try:
-                    import json
-
-                    response = json.loads(result.stdout)
-
-                    if response.get("is_error", False):
-                        raise RuntimeError(
-                            f"Claude Code error: {response.get('result', 'Unknown error')}"
-                        )
-
-                    output = response.get("result", "")
-                    logger.info(
-                        f"Claude Code completed successfully ({len(output)} chars)"
-                    )
-                    logger.info(f"Cost: ${response.get('total_cost_usd', 0.0):.4f}")
-                    logger.info(f"Duration: {response.get('duration_ms', 0)}ms")
-
-                    return output
-
-                except json.JSONDecodeError:
-                    # Fallback to text output if JSON parsing fails
-                    logger.warning("Could not parse JSON response, using text output")
-                    output = result.stdout.strip()
-                    if not output:
-                        raise RuntimeError("Claude Code returned empty result")
-                    return output
-
-            except subprocess.TimeoutExpired:
-                logger.error(f"Claude Code timed out after {self.timeout} seconds")
-                raise RuntimeError(f"Claude Code execution timed out")
+                return result
 
         except Exception as e:
-            logger.error(f"Error running Claude Code: {str(e)}")
+            logger.error(f"Error running Claude Code SDK: {str(e)}")
             raise
 
     def _create_research_prompt(self) -> str:

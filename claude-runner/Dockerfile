@@ -64,5 +64,8 @@ ENV TERM=xterm-256color
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
+# Set API key environment for SDK
+ENV ANTHROPIC_API_KEY=""
+
 # Run the application
 CMD ["python", "main.py"]
