@@ -109,15 +109,49 @@ class ClaudeRunner:
 
             logger.info("Initializing Claude Code with Playwright MCP...")
 
-            # Configure Claude Code CLI command
+            # First-time setup: Initialize Claude Code authentication if needed
+            try:
+                # Check if Claude Code is authenticated
+                auth_check = subprocess.run(
+                    ["claude", "config", "list"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    env=env,
+                )
+
+                if auth_check.returncode != 0:
+                    logger.info("Setting up Claude Code authentication...")
+                    # Initialize Claude Code with API key
+                    setup_result = subprocess.run(
+                        ["claude", "setup-token", "--token", env["ANTHROPIC_API_KEY"]],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        env=env,
+                    )
+
+                    if setup_result.returncode != 0:
+                        logger.warning(f"Claude setup warning: {setup_result.stderr}")
+                        # Continue anyway - might work with direct API key
+                else:
+                    logger.info("Claude Code already authenticated")
+
+            except Exception as e:
+                logger.warning(f"Could not verify Claude authentication: {e}")
+                # Continue anyway - might work with direct API key
+
+            # Configure Claude Code CLI command with additional container-friendly flags
             command = [
                 "claude",
                 "--print",
                 "--output-format",
                 "text",
-                "--dangerously-skip-permissions",
+                "--dangerously-skip-permissions",  # Skip permission dialogs
                 "--mcp-config",
                 "/app/.mcp.json",
+                "--model",
+                "claude-3-5-sonnet-20241022",  # Explicit model
                 prompt,
             ]
 
