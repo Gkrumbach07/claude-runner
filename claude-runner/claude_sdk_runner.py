@@ -4,13 +4,14 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
-import requests
 import sys
 from typing import Dict, Any
 from datetime import datetime, timezone
 
-# Configure logging with immediate flush for container visibility
+# Import Claude Code Python SDK
+from claude_code_sdk import ClaudeCodeSDK
+
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -20,7 +21,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class ClaudeRunner:
+class ClaudeSDKRunner:
+    """Claude Research Runner using Python SDK (recommended approach)"""
+
     def __init__(self):
         self.session_name = os.getenv("RESEARCH_SESSION_NAME", "")
         self.session_namespace = os.getenv("RESEARCH_SESSION_NAMESPACE", "default")
@@ -31,54 +34,50 @@ class ClaudeRunner:
             "BACKEND_API_URL", "http://backend-service:8080/api"
         )
 
-        # Validate Anthropic API key for Claude Code
+        # Validate Anthropic API key
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
 
-        logger.info(f"Initialized ClaudeRunner for session: {self.session_name}")
+        logger.info(f"Initialized ClaudeSDKRunner for session: {self.session_name}")
         logger.info(f"Website URL: {self.website_url}")
-        logger.info("Using Claude Code CLI with Playwright MCP")
+        logger.info("Using Claude Code Python SDK with Playwright MCP")
 
     async def run_research_session(self):
-        """Main method to run the research session"""
+        """Main method to run the research session using Python SDK"""
         try:
-            logger.info(
-                "Starting research session with Claude Code + Playwright MCP..."
-            )
+            logger.info("Starting research session with Claude Code Python SDK...")
 
             # Update status to indicate we're starting
             await self.update_session_status(
                 {
                     "phase": "Running",
-                    "message": "Initializing Claude Code with Playwright MCP browser capabilities",
+                    "message": "Initializing Claude Code Python SDK with Playwright MCP",
                     "startTime": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
-            # Create comprehensive research prompt for Claude Code with MCP tools
+            # Create comprehensive research prompt
             research_prompt = self._create_research_prompt()
 
             # Update status
             await self.update_session_status(
                 {
                     "phase": "Running",
-                    "message": f"Claude Code analyzing {self.website_url} with agentic browser automation",
+                    "message": f"Claude Code analyzing {self.website_url} with SDK automation",
                 }
             )
 
-            # Run Claude Code with our research prompt
-            logger.info("Running Claude Code with MCP browser automation...")
-
-            result = await self._run_claude_code(research_prompt)
-
-            logger.info("Received comprehensive research analysis from Claude Code")
+            # Run Claude Code with Python SDK
+            logger.info("Running Claude Code with Python SDK...")
+            result = await self._run_claude_code_sdk(research_prompt)
+            logger.info("Received comprehensive research analysis from Claude Code SDK")
 
             # Update the session with the final result
             await self.update_session_status(
                 {
                     "phase": "Completed",
-                    "message": "Research completed successfully using Claude Code + Playwright MCP",
+                    "message": "Research completed successfully using Claude Code Python SDK",
                     "completionTime": datetime.now(timezone.utc).isoformat(),
                     "finalOutput": result,
                 }
@@ -100,122 +99,45 @@ class ClaudeRunner:
 
             sys.exit(1)
 
-    async def _run_claude_code(self, prompt: str) -> str:
-        """Run Claude Code CLI with the research prompt"""
+    async def _run_claude_code_sdk(self, prompt: str) -> str:
+        """Run Claude Code using Python SDK (recommended approach)"""
         try:
-            # Set up environment with API key
-            env = os.environ.copy()
-            env["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
+            logger.info("Initializing Claude Code Python SDK...")
 
-            logger.info("Initializing Claude Code with Playwright MCP...")
+            # Initialize SDK with proper configuration (from official docs)
+            sdk = ClaudeCodeSDK(
+                api_key=os.getenv("ANTHROPIC_API_KEY"),
+                mcp_config_path="/app/.mcp.json",  # MCP configuration
+                allowed_tools=["mcp__playwright"],  # Explicit tool permissions
+                permission_mode="acceptEdits",  # Handle permissions properly
+                working_directory="/app",
+                verbose=True,
+            )
 
-            # First-time setup: Initialize Claude Code authentication if needed
-            try:
-                # Check if Claude Code is authenticated
-                auth_check = subprocess.run(
-                    ["claude", "config", "list"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    env=env,
-                )
+            logger.info(f"Executing Claude Code SDK (prompt: {len(prompt)} chars)...")
 
-                if auth_check.returncode != 0:
-                    logger.info("Setting up Claude Code authentication...")
-                    # Initialize Claude Code with API key
-                    setup_result = subprocess.run(
-                        ["claude", "setup-token", "--token", env["ANTHROPIC_API_KEY"]],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                        env=env,
-                    )
-
-                    if setup_result.returncode != 0:
-                        logger.warning(f"Claude setup warning: {setup_result.stderr}")
-                        # Continue anyway - might work with direct API key
-                else:
-                    logger.info("Claude Code already authenticated")
-
-            except Exception as e:
-                logger.warning(f"Could not verify Claude authentication: {e}")
-                # Continue anyway - might work with direct API key
-
-            # Use proper Claude Code CLI approach from official docs
-            command = [
-                "claude",
-                "-p",  # Use -p shorthand for --print (recommended)
-                "--output-format",
-                "json",  # Use JSON for better error handling
-                "--permission-mode",
-                "acceptEdits",  # Handle permissions properly
-                "--allowedTools",
-                "mcp__playwright",  # Explicit tool permissions
-                "--mcp-config",
-                "/app/.mcp.json",
-                "--verbose",  # Enable verbose logging
+            # Execute research prompt using SDK
+            response = await sdk.query(
                 prompt,
-            ]
+                output_format="json",  # Get structured response
+                timeout=self.timeout,
+            )
 
-            logger.info(f"Executing Claude Code CLI (prompt: {len(prompt)} chars)...")
+            # Extract result from SDK response
+            if response.is_error:
+                logger.error(f"Claude Code SDK error: {response.error_message}")
+                raise RuntimeError(f"Claude Code SDK failed: {response.error_message}")
 
-            # Execute with proper timeout and error handling (from SDK docs)
-            try:
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                    env=env,
-                    cwd="/app",
-                    check=False,  # Don't raise on non-zero exit
-                )
+            result = response.result
+            logger.info(f"Claude Code SDK completed successfully ({len(result)} chars)")
+            logger.info(f"Cost: ${response.cost_usd:.4f}")
+            logger.info(f"Duration: {response.duration_ms}ms")
+            logger.info(f"Turns: {response.num_turns}")
 
-                # Log stderr for debugging (common in headless mode)
-                if result.stderr:
-                    logger.info(f"Claude Code stderr: {result.stderr}")
-
-                if result.returncode != 0:
-                    logger.error(
-                        f"Claude Code failed with return code {result.returncode}"
-                    )
-                    logger.error(f"Error details: {result.stderr}")
-                    raise RuntimeError(f"Claude Code failed: {result.stderr}")
-
-                # Parse JSON response (recommended by SDK docs)
-                try:
-                    import json
-
-                    response = json.loads(result.stdout)
-
-                    if response.get("is_error", False):
-                        raise RuntimeError(
-                            f"Claude Code error: {response.get('result', 'Unknown error')}"
-                        )
-
-                    output = response.get("result", "")
-                    logger.info(
-                        f"Claude Code completed successfully ({len(output)} chars)"
-                    )
-                    logger.info(f"Cost: ${response.get('total_cost_usd', 0.0):.4f}")
-                    logger.info(f"Duration: {response.get('duration_ms', 0)}ms")
-
-                    return output
-
-                except json.JSONDecodeError:
-                    # Fallback to text output if JSON parsing fails
-                    logger.warning("Could not parse JSON response, using text output")
-                    output = result.stdout.strip()
-                    if not output:
-                        raise RuntimeError("Claude Code returned empty result")
-                    return output
-
-            except subprocess.TimeoutExpired:
-                logger.error(f"Claude Code timed out after {self.timeout} seconds")
-                raise RuntimeError(f"Claude Code execution timed out")
+            return result
 
         except Exception as e:
-            logger.error(f"Error running Claude Code: {str(e)}")
+            logger.error(f"Error running Claude Code SDK: {str(e)}")
             raise
 
     def _create_research_prompt(self) -> str:
@@ -275,6 +197,8 @@ Remember: You have full browser automation capabilities through MCP - use them t
     async def update_session_status(self, status_update: Dict[str, Any]):
         """Update the ResearchSession status via the backend API"""
         try:
+            import requests
+
             url = f"{self.backend_api_url}/research-sessions/{self.session_name}/status"
 
             logger.info(
@@ -299,7 +223,7 @@ Remember: You have full browser automation capabilities through MCP - use them t
 
 async def main():
     """Main entry point"""
-    logger.info("Claude Research Runner with Claude Code + Playwright MCP starting...")
+    logger.info("Claude Research Runner with Python SDK starting...")
 
     # Validate required environment variables
     required_vars = [
@@ -317,7 +241,7 @@ async def main():
         sys.exit(1)
 
     try:
-        runner = ClaudeRunner()
+        runner = ClaudeSDKRunner()
         await runner.run_research_session()
 
     except KeyboardInterrupt:
