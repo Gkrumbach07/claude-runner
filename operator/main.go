@@ -208,56 +208,44 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: int32Ptr(3),
-			// Optional safety timeouts:
-			// ActiveDeadlineSeconds: int64Ptr(900), // 15m wall clock
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
 						"research-session": name,
 						"app":              "claude-runner",
 					},
-					// If you use Istio/Linkerd and want to avoid sidecar in Jobs:
+					// If you run a service mesh that injects sidecars and causes egress issues for Jobs:
 					// Annotations: map[string]string{"sidecar.istio.io/inject": "false"},
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 
-					// 🔐 Pod-level security context: allow random UID + group write
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot:   boolPtr(true),
-						FSGroup:        int64Ptr(0), // group 0 matches our g+rw approach
-						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-					},
+					// ⚠️ Do NOT set fsGroup/runAsUser here; let the SCC choose a random UID/GID.
+					// SecurityContext: &corev1.PodSecurityContext{ ... }  // <-- omit
 
-					// 🔧 Volumes for /dev/shm and writable HOME
-					Volumes: []corev1.Volume{
-						{
-							Name: "dshm",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{
-									Medium:    corev1.StorageMediumMemory,
-									SizeLimit: resource.NewQuantity(256*1024*1024, resource.BinarySI),
-								},
-							},
-						},
-						{
-							Name: "home",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
-					},
+					// Optional: you can still mount /dev/shm, but with --disable-dev-shm-usage it isn't required.
+					// Keeping it empty by default keeps things simplest under restricted SCC.
+					// Volumes: []corev1.Volume{
+					//     {
+					//         Name: "dshm",
+					//         VolumeSource: corev1.VolumeSource{
+					//             EmptyDir: &corev1.EmptyDirVolumeSource{
+					//                 Medium:    corev1.StorageMediumMemory,
+					//                 SizeLimit: resource.NewQuantity(256*1024*1024, resource.BinarySI),
+					//             },
+					//         },
+					//     },
+					// },
 
 					Containers: []corev1.Container{
 						{
 							Name:  "claude-runner",
 							Image: claudeRunnerImage,
 
-							// 📦 Mount SHM + ephemeral HOME
-							VolumeMounts: []corev1.VolumeMount{
-								{Name: "dshm", MountPath: "/dev/shm"},
-								{Name: "home", MountPath: "/home/claude"},
-							},
+							// If you choose to mount /dev/shm, add:
+							// VolumeMounts: []corev1.VolumeMount{
+							//     { Name: "dshm", MountPath: "/dev/shm" },
+							// },
 
 							Env: []corev1.EnvVar{
 								{Name: "RESEARCH_SESSION_NAME", Value: name},
@@ -270,7 +258,7 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								{Name: "TIMEOUT", Value: fmt.Sprintf("%d", timeout)},
 								{Name: "BACKEND_API_URL", Value: os.Getenv("BACKEND_API_URL")},
 
-								// 🔑 Secret for Anthropic
+								// 🔑 Anthropic key from Secret
 								{
 									Name: "ANTHROPIC_API_KEY",
 									ValueFrom: &corev1.EnvVarSource{
@@ -281,15 +269,16 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 									},
 								},
 
-								// 🧊 Playwright/Chromium stability in pods
-								{Name: "PW_CHROMIUM_ARGS", Value: "--no-sandbox --disable-gpu --disable-dev-shm-usage"},
-
-								// (Optional) keep caches/config out of $HOME (works great for random UIDs)
+								// ✅ Make everything write under /tmp (SCC-friendly)
+								{Name: "HOME", Value: "/tmp"},
 								{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
 								{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
 								{Name: "XDG_DATA_HOME", Value: "/tmp/.local/share"},
 
-								// (Optional) proxy support if you have one:
+								// 🧊 Playwright/Chromium in restricted pods (no sandbox, avoid dev/shm reliance)
+								{Name: "PW_CHROMIUM_ARGS", Value: "--no-sandbox --disable-gpu --disable-dev-shm-usage"},
+
+								// (Optional) proxy envs if your cluster requires them:
 								// { Name: "HTTPS_PROXY", Value: "http://proxy.corp:3128" },
 								// { Name: "NO_PROXY",    Value: ".svc,.cluster.local,10.0.0.0/8" },
 							},
@@ -304,21 +293,6 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 									corev1.ResourceMemory: resource.MustParse("4Gi"),
 								},
 							},
-
-							// (Optional) preflight + run: makes network/cert failures obvious
-							// Command: []string{"/bin/bash","-lc"},
-							// Args: []string{`
-							//   set -euo pipefail
-							//   echo "UID/GID:"; id
-							//   echo "HOME: $HOME"
-							//   mkdir -p "$HOME"/.config "$HOME"/.cache "$HOME"/.local/share
-							//   touch "$HOME"/.write_test && echo "HOME writable"
-							//   getent hosts api.anthropic.com || nslookup api.anthropic.com
-							//   python - <<'PY'
-							// import ssl, socket; s=ssl.create_default_context().wrap_socket(socket.socket(), server_hostname="api.anthropic.com"); s.settimeout(5); s.connect(("api.anthropic.com",443)); print("TLS OK")
-							// PY
-							//   exec python -u /app/main.py
-							// `},
 						},
 					},
 				},
