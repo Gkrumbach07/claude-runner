@@ -102,65 +102,143 @@ class ClaudeRunner:
             sys.exit(1)
 
     async def _run_claude_code(self, prompt: str) -> str:
-        """Run Claude Code using Python SDK (no subprocess!)"""
+        """Run Claude Code using Python SDK with Kubernetes debugging"""
         try:
+            logger.info("=== PYTHON SDK WITH KUBERNETES DEBUGGING ===")
+
+            # First test network connectivity
+            await self._debug_network_connectivity()
+
             logger.info("Initializing Claude Code Python SDK...")
 
-            # Configure SDK options from official docs
+            # Simplified options - remove potential blocking configurations
             options = ClaudeCodeOptions(
                 system_prompt="You are a research assistant with browser automation capabilities via Playwright MCP tools.",
                 max_turns=3,
                 permission_mode="acceptEdits",  # Handle permissions automatically
                 allowed_tools=["mcp__playwright"],  # Explicit tool permissions
-                mcp_servers="/app/.mcp.json",  # MCP configuration file
+                # Remove MCP servers for now to test - might be causing the hang
+                # mcp_servers="/app/.mcp.json",  # Comment out temporarily
                 cwd="/app",
             )
 
-            logger.info(f"Executing Claude Code SDK (prompt: {len(prompt)} chars)...")
+            logger.info(f"SDK Options configured. Prompt length: {len(prompt)} chars")
+            logger.info("Attempting to create ClaudeSDKClient...")
 
-            # Use ClaudeSDKClient directly (recommended approach)
-            async with ClaudeSDKClient(options=options) as client:
-                # Send the research prompt
-                await client.query(prompt)
+            # Use ClaudeSDKClient with explicit error handling
+            try:
+                # Add timeout wrapper around SDK initialization
+                import asyncio
 
-                # Collect streaming response
-                response_text = []
-                cost = 0.0
-                duration = 0
+                async def run_sdk():
+                    async with ClaudeSDKClient(options=options) as client:
+                        logger.info("✅ SDK Client initialized successfully")
 
-                async for message in client.receive_response():
-                    # Stream content as it arrives
-                    if hasattr(message, "content"):
-                        for block in message.content:
-                            if hasattr(block, "text"):
-                                text = block.text
-                                logger.info(
-                                    f"Claude: {text[:100]}{'...' if len(text) > 100 else ''}"
-                                )
-                                response_text.append(text)
+                        # Send the research prompt
+                        logger.info("Sending query to Claude Code SDK...")
+                        await client.query(prompt)
 
-                    # Get final result with metadata
-                    if type(message).__name__ == "ResultMessage":
-                        cost = getattr(message, "total_cost_usd", 0.0)
-                        duration = getattr(message, "duration_ms", 0)
+                        # Collect streaming response
+                        response_text = []
+                        cost = 0.0
+                        duration = 0
 
-                # Combine response
-                result = "".join(response_text)
+                        logger.info(
+                            "Receiving streaming response from Claude Code SDK..."
+                        )
+                        async for message in client.receive_response():
+                            # Stream content as it arrives
+                            if hasattr(message, "content"):
+                                for block in message.content:
+                                    if hasattr(block, "text"):
+                                        text = block.text
+                                        logger.info(
+                                            f"Claude: {text[:100]}{'...' if len(text) > 100 else ''}"
+                                        )
+                                        response_text.append(text)
 
-                if not result.strip():
-                    raise RuntimeError("Claude Code SDK returned empty result")
+                            # Get final result with metadata
+                            if type(message).__name__ == "ResultMessage":
+                                cost = getattr(message, "total_cost_usd", 0.0)
+                                duration = getattr(message, "duration_ms", 0)
 
-                logger.info(
-                    f"Claude Code SDK completed successfully ({len(result)} chars)"
-                )
-                logger.info(f"Cost: ${cost:.4f}")
-                logger.info(f"Duration: {duration}ms")
+                        # Combine response
+                        result = "".join(response_text)
 
+                        if not result.strip():
+                            raise RuntimeError("Claude Code SDK returned empty result")
+
+                        logger.info(
+                            f"Claude Code SDK completed successfully ({len(result)} chars)"
+                        )
+                        logger.info(f"Cost: ${cost:.4f}")
+                        logger.info(f"Duration: {duration}ms")
+
+                        return result
+
+                # Run with timeout to identify where it's hanging
+                logger.info("Starting SDK execution with 120s timeout...")
+                result = await asyncio.wait_for(run_sdk(), timeout=120.0)
                 return result
+
+            except asyncio.TimeoutError:
+                logger.error(
+                    "❌ SDK initialization/execution timed out after 120 seconds"
+                )
+                logger.error(
+                    "This suggests network connectivity or MCP server issues in Kubernetes"
+                )
+                raise RuntimeError(
+                    "Claude Code SDK timed out - likely network/MCP issue in Kubernetes"
+                )
+            except Exception as sdk_error:
+                logger.error(f"❌ SDK Error: {str(sdk_error)}")
+                logger.error(f"Error type: {type(sdk_error).__name__}")
+                raise
 
         except Exception as e:
             logger.error(f"Error running Claude Code SDK: {str(e)}")
             raise
+
+    async def _debug_network_connectivity(self):
+        """Debug network connectivity in Kubernetes environment"""
+        try:
+            import subprocess
+
+            logger.info("=== NETWORK CONNECTIVITY TEST ===")
+
+            # Test DNS resolution
+            try:
+                result = subprocess.run(
+                    ["nslookup", "api.anthropic.com"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                logger.info(f"DNS test: {result.returncode == 0}")
+                if result.returncode != 0:
+                    logger.error(f"DNS resolution failed: {result.stderr}")
+            except Exception as e:
+                logger.error(f"DNS test failed: {e}")
+
+            # Test HTTP connectivity
+            try:
+                result = subprocess.run(
+                    ["curl", "-I", "https://api.anthropic.com", "--max-time", "10"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                logger.info(f"HTTP connectivity test: {result.returncode == 0}")
+                if result.returncode != 0:
+                    logger.error(f"HTTP connectivity failed: {result.stderr}")
+                else:
+                    logger.info(f"HTTP response headers: {result.stdout[:200]}")
+            except Exception as e:
+                logger.error(f"HTTP test failed: {e}")
+
+        except Exception as e:
+            logger.error(f"Network debugging failed: {e}")
 
     def _create_research_prompt(self) -> str:
         """Create a comprehensive research prompt for Claude Code with MCP browser instructions"""
