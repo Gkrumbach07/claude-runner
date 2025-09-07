@@ -109,16 +109,22 @@ class ClaudeRunner:
             # First test network connectivity
             await self._debug_network_connectivity()
 
+            # Test Claude CLI binary directly
+            await self._debug_claude_binary()
+
             logger.info("Initializing Claude Code Python SDK...")
 
-            # Simplified options - remove potential blocking configurations
+            # MINIMAL SDK options - remove everything that could cause hanging
+            logger.info(
+                "Testing with MINIMAL SDK configuration (no MCP, no special tools)"
+            )
             options = ClaudeCodeOptions(
-                system_prompt="You are a research assistant with browser automation capabilities via Playwright MCP tools.",
-                max_turns=3,
-                permission_mode="acceptEdits",  # Handle permissions automatically
-                allowed_tools=["mcp__playwright"],  # Explicit tool permissions
-                # Remove MCP servers for now to test - might be causing the hang
-                # mcp_servers="/app/.mcp.json",  # Comment out temporarily
+                system_prompt="You are a helpful research assistant. Analyze this website and provide insights.",
+                max_turns=2,
+                permission_mode="acceptEdits",
+                # Remove ALL MCP-related configurations that might hang
+                # allowed_tools=["mcp__playwright"],  # Comment out - might cause hanging
+                # mcp_servers="/app/.mcp.json",  # Comment out - might cause hanging
                 cwd="/app",
             )
 
@@ -131,65 +137,79 @@ class ClaudeRunner:
                 import asyncio
 
                 async def run_sdk():
-                    async with ClaudeSDKClient(options=options) as client:
-                        logger.info("✅ SDK Client initialized successfully")
+                    logger.info("🔄 Attempting SDK Client initialization...")
+                    try:
+                        async with ClaudeSDKClient(options=options) as client:
+                            logger.info("✅ SDK Client initialized successfully!")
 
-                        # Send the research prompt
-                        logger.info("Sending query to Claude Code SDK...")
-                        await client.query(prompt)
+                            # Send a simple test query first (no browser automation)
+                            simple_prompt = f"Please analyze this website URL: {self.website_url} and provide insights about: {self.prompt}. Note: This is a text-only analysis since browser tools are not available in this environment."
 
-                        # Collect streaming response
-                        response_text = []
-                        cost = 0.0
-                        duration = 0
+                            logger.info(
+                                "📤 Sending simplified query to Claude Code SDK..."
+                            )
+                            await client.query(simple_prompt)
 
-                        logger.info(
-                            "Receiving streaming response from Claude Code SDK..."
+                            # Collect streaming response
+                            response_text = []
+                            cost = 0.0
+                            duration = 0
+
+                            logger.info(
+                                "📥 Receiving streaming response from Claude Code SDK..."
+                            )
+                            async for message in client.receive_response():
+                                # Stream content as it arrives
+                                if hasattr(message, "content"):
+                                    for block in message.content:
+                                        if hasattr(block, "text"):
+                                            text = block.text
+                                            logger.info(
+                                                f"Claude: {text[:100]}{'...' if len(text) > 100 else ''}"
+                                            )
+                                            response_text.append(text)
+
+                                # Get final result with metadata
+                                if type(message).__name__ == "ResultMessage":
+                                    cost = getattr(message, "total_cost_usd", 0.0)
+                                    duration = getattr(message, "duration_ms", 0)
+
+                            # Combine response
+                            result = "".join(response_text)
+
+                            if not result.strip():
+                                raise RuntimeError(
+                                    "Claude Code SDK returned empty result"
+                                )
+
+                            logger.info(
+                                f"✅ Claude Code SDK completed successfully ({len(result)} chars)"
+                            )
+                            logger.info(f"💰 Cost: ${cost:.4f}")
+                            logger.info(f"⏱️ Duration: {duration}ms")
+
+                            return result
+                    except Exception as init_error:
+                        logger.error(
+                            f"❌ SDK Client initialization failed: {str(init_error)}"
                         )
-                        async for message in client.receive_response():
-                            # Stream content as it arrives
-                            if hasattr(message, "content"):
-                                for block in message.content:
-                                    if hasattr(block, "text"):
-                                        text = block.text
-                                        logger.info(
-                                            f"Claude: {text[:100]}{'...' if len(text) > 100 else ''}"
-                                        )
-                                        response_text.append(text)
-
-                            # Get final result with metadata
-                            if type(message).__name__ == "ResultMessage":
-                                cost = getattr(message, "total_cost_usd", 0.0)
-                                duration = getattr(message, "duration_ms", 0)
-
-                        # Combine response
-                        result = "".join(response_text)
-
-                        if not result.strip():
-                            raise RuntimeError("Claude Code SDK returned empty result")
-
-                        logger.info(
-                            f"Claude Code SDK completed successfully ({len(result)} chars)"
-                        )
-                        logger.info(f"Cost: ${cost:.4f}")
-                        logger.info(f"Duration: {duration}ms")
-
-                        return result
+                        logger.error(f"Error type: {type(init_error).__name__}")
+                        raise
 
                 # Run with timeout to identify where it's hanging
-                logger.info("Starting SDK execution with 120s timeout...")
-                result = await asyncio.wait_for(run_sdk(), timeout=120.0)
+                logger.info("🚀 Starting MINIMAL SDK execution with 60s timeout...")
+                result = await asyncio.wait_for(run_sdk(), timeout=60.0)
                 return result
 
             except asyncio.TimeoutError:
                 logger.error(
-                    "❌ SDK initialization/execution timed out after 120 seconds"
+                    "❌ MINIMAL SDK timed out after 60 seconds - this indicates a fundamental SDK issue in Kubernetes"
                 )
                 logger.error(
-                    "This suggests network connectivity or MCP server issues in Kubernetes"
+                    "Even without MCP tools, the SDK fails to initialize in Kubernetes environment"
                 )
                 raise RuntimeError(
-                    "Claude Code SDK timed out - likely network/MCP issue in Kubernetes"
+                    "Claude Code SDK timed out even in minimal mode - Kubernetes environment issue"
                 )
             except Exception as sdk_error:
                 logger.error(f"❌ SDK Error: {str(sdk_error)}")
@@ -239,6 +259,32 @@ class ClaudeRunner:
 
         except Exception as e:
             logger.error(f"Network debugging failed: {e}")
+
+    async def _debug_claude_binary(self):
+        """Debug Claude CLI binary directly"""
+        try:
+            import subprocess
+
+            logger.info("=== CLAUDE BINARY DEBUG ===")
+            logger.info("Running dedicated Claude CLI debugging script...")
+
+            # Run our dedicated debugging script
+            result = subprocess.run(
+                ["python", "/app/debug-claude.py"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            logger.info("Claude binary debug script output:")
+            logger.info(result.stdout)
+
+            if result.stderr:
+                logger.info("Claude binary debug script errors:")
+                logger.info(result.stderr)
+
+        except Exception as e:
+            logger.error(f"Claude binary debugging failed: {e}")
 
     def _create_research_prompt(self) -> str:
         """Create a comprehensive research prompt for Claude Code with MCP browser instructions"""
