@@ -75,6 +75,16 @@ class ClaudeRunner:
 
             logger.info("Received comprehensive research analysis from Claude Code")
 
+            # Log the complete research results to console
+            print("\n" + "=" * 80)
+            print("🔬 RESEARCH RESULTS")
+            print("=" * 80)
+            print(result)
+            print("=" * 80 + "\n")
+
+            # Also log to structured logging
+            logger.info(f"FINAL RESEARCH RESULTS:\n{result}")
+
             # Update the session with the final result
             await self.update_session_status(
                 {
