@@ -53,6 +53,9 @@ class ClaudeRunner:
                 "Starting research session with Claude Code + Playwright MCP..."
             )
 
+            # Verify browser setup before starting
+            await self._verify_browser_setup()
+
             # Update status to indicate we're starting
             await self.update_session_status(
                 {
@@ -116,12 +119,63 @@ class ClaudeRunner:
 
             sys.exit(1)
 
+    async def _verify_browser_setup(self):
+        """Verify browser installation and permissions for OpenShift compatibility"""
+        try:
+            import subprocess
+            import os
+
+            logger.info("Verifying browser setup for OpenShift environment...")
+
+            # Check if browser directory exists and is accessible
+            browser_path = "/app/.cache/ms-playwright"
+            if not os.path.exists(browser_path):
+                logger.warning(f"Browser cache directory not found at {browser_path}")
+                return
+
+            # Check directory permissions
+            if not os.access(browser_path, os.R_OK | os.X_OK):
+                logger.error(f"Browser directory {browser_path} not accessible")
+                return
+
+            # List browser contents for debugging
+            try:
+                contents = os.listdir(browser_path)
+                logger.info(f"Browser cache contents: {contents}")
+            except Exception as e:
+                logger.warning(f"Could not list browser cache: {e}")
+
+            # Check if chromium binary exists and is executable
+            for root, dirs, files in os.walk(browser_path):
+                for file in files:
+                    if "chromium" in file.lower() and os.access(
+                        os.path.join(root, file), os.X_OK
+                    ):
+                        logger.info(
+                            f"Found executable browser binary: {os.path.join(root, file)}"
+                        )
+                        break
+            else:
+                logger.warning("No executable chromium binary found")
+
+            # Check environment variables
+            env_vars = ["PLAYWRIGHT_BROWSERS_PATH", "HOME", "DISPLAY"]
+            for var in env_vars:
+                value = os.getenv(var, "Not set")
+                logger.info(f"{var}: {value}")
+
+            logger.info("Browser setup verification completed")
+
+        except Exception as e:
+            logger.error(f"Error during browser setup verification: {e}")
+            # Don't fail the process, just log the warning
+
     async def _run_claude_code(self, prompt: str) -> str:
         """Run Claude Code using Python SDK with MCP browser automation"""
         try:
             logger.info("Initializing Claude Code Python SDK with MCP server...")
 
-            # Configure MCP servers directly in the SDK (more reliable than CLI registration)
+            # Configure MCP servers for OpenShift compatibility
             mcp_servers = {
                 "playwright": {
                     "command": "npx",
@@ -131,19 +185,22 @@ class ClaudeRunner:
                         "--browser",
                         "chromium",
                         "--user-data-dir",
-                        "/tmp/.playwright-profile",
+                        "/app/.playwright-profile",
                         "--isolated",
                     ],
                     "env": {
-                        "PLAYWRIGHT_BROWSERS_PATH": "/tmp/.cache/ms-playwright",
-                        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "false",
-                        "PW_CHROMIUM_ARGS": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins",
-                        "DEBUG": "pw:api",
+                        "PLAYWRIGHT_BROWSERS_PATH": "/app/.cache/ms-playwright",
+                        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "true",
+                        "PW_CHROMIUM_ARGS": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=TranslateUI --disable-ipc-flooding-protection --no-first-run --no-default-browser-check --disable-web-security --disable-features=VizDisplayCompositor",
+                        "DEBUG": "pw:api" if log_level == logging.DEBUG else "",
                         "DISPLAY": ":99",
-                        "PLAYWRIGHT_MCP_WORK_DIR": "/tmp/.playwright-mcp-work",
-                        "TMPDIR": "/tmp",
-                        "TMP": "/tmp",
-                        "HOME": "/tmp",
+                        "PLAYWRIGHT_MCP_WORK_DIR": "/app/.playwright-mcp-work",
+                        "TMPDIR": "/app/tmp",
+                        "TMP": "/app/tmp",
+                        "HOME": "/app",
+                        "XDG_CONFIG_HOME": "/app/.config",
+                        "XDG_CACHE_HOME": "/app/.cache",
+                        "XDG_DATA_HOME": "/app/.local/share",
                     },
                 }
             }

@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies + debugging tools
+# Install system dependencies + debugging tools + browser dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     strace \
     procps \
     lsof \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 18+ (required for Claude Code)
@@ -32,89 +33,65 @@ RUN npm install -g @anthropic-ai/claude-code @playwright/mcp
 RUN cd /app && echo '{"name":"claude-runner","dependencies":{"playwright":"*","@playwright/mcp":"*"}}' > package.json && \
     npm install
 
-# Install Playwright system dependencies as root FIRST
-RUN npx playwright install-deps chromium
+# Install Playwright system dependencies and browsers as ROOT
+RUN npx playwright install-deps chromium && \
+    npx playwright install chromium
 
-# Create a non-root user
-RUN useradd --create-home --shell /bin/bash --uid 1000 claude
+# OpenShift-compatible setup: Create directories with proper permissions for any UID
+RUN mkdir -p /app/.cache/ms-playwright \
+    && mkdir -p /app/.playwright-profile \
+    && mkdir -p /app/.playwright-mcp-work \
+    && mkdir -p /app/.config \
+    && mkdir -p /app/.local/share \
+    && mkdir -p /app/tmp \
+    && chmod -R 777 /app/.cache \
+    && chmod -R 777 /app/.playwright-profile \
+    && chmod -R 777 /app/.playwright-mcp-work \
+    && chmod -R 777 /app/.config \
+    && chmod -R 777 /app/.local \
+    && chmod -R 777 /app/tmp
 
-# Switch to claude user to set up Claude Code properly  
-USER claude
+# Move browsers to app directory for OpenShift compatibility
+RUN if [ -d /root/.cache/ms-playwright ]; then \
+        cp -r /root/.cache/ms-playwright/* /app/.cache/ms-playwright/ 2>/dev/null || true; \
+    fi && \
+    chmod -R 777 /app/.cache/ms-playwright && \
+    find /app/.cache/ms-playwright -name "chromium*" -type f -exec chmod +x {} \; 2>/dev/null || true
 
-# Create required directories for user
-RUN mkdir -p /home/claude/.config \
-    && mkdir -p /home/claude/.local/share \
-    && mkdir -p /home/claude/.cache
-
-# Install Playwright browsers as claude user (system deps already installed)
-ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
-RUN mkdir -p /tmp/.cache/ms-playwright && \
-    cd /app && \
-    npx playwright install chromium && \
-    echo "Browser installation completed for claude user" && \
-    ls -la /tmp/.cache/ms-playwright/
-
-# Switch back to root to set permissions and verify installation
-USER root
-RUN chmod -R 755 /tmp/.cache/ms-playwright && \
-    find /tmp/.cache/ms-playwright -name "chromium*" -type f -exec chmod +x {} \; && \
-    ls -la /tmp/.cache/ms-playwright/ && \
-    echo "Browser permissions set successfully"
-
-# Create additional required directories with proper permissions
-RUN mkdir -p /tmp/.config /tmp/.cache /tmp/.local/share /tmp/.playwright-profile /tmp/.playwright-mcp-work && \
-    chmod -R 777 /tmp/.config /tmp/.cache /tmp/.local /tmp/.playwright-profile /tmp/.playwright-mcp-work && \
-    mkdir -p /app/.playwright-mcp && \
-    chown -R claude:claude /app/.playwright-mcp && \
-    chmod -R 755 /app/.playwright-mcp
-
-# Install virtual display for headless mode (optional, for better compatibility)
-RUN apt-get update && apt-get install -y xvfb && rm -rf /var/lib/apt/lists/*
-
-# Create startup script for virtual display
-RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\nexport DISPLAY=:99\nexec "$@"' > /usr/local/bin/start-xvfb && \
+# Create startup script for virtual display (OpenShift compatible)
+RUN echo '#!/bin/bash\n' \
+         'export HOME=/app\n' \
+         'export DISPLAY=:99\n' \
+         'Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset > /dev/null 2>&1 &\n' \
+         'sleep 2\n' \
+         'exec "$@"' > /usr/local/bin/start-xvfb && \
     chmod +x /usr/local/bin/start-xvfb
 
-USER claude
+# Copy the application files with proper permissions
+COPY main.py /app/
+COPY CLAUDE.md /app/
+RUN chmod 755 /app/main.py && chmod 644 /app/CLAUDE.md
 
-# Verify browser and MCP server installation
-RUN cd /app && npx playwright --version && \
-    echo "Playwright CLI verification successful" && \
-    npx @playwright/mcp --help | head -5 && \
-    echo "MCP server verification completed"
-
-# Copy the application files
-COPY --chown=claude:claude main.py /app/
-COPY --chown=claude:claude CLAUDE.md /app/
-
-# Switch to claude user for final setup
-USER claude
-
-# Make the script executable (as claude user)
-RUN chmod +x /app/main.py
-
-# Switch back to root for system-level setup
-USER root
-
-# Set environment variables
+# Set OpenShift-compatible environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV NODE_OPTIONS="--max-old-space-size=2048"
-ENV HOME=/home/claude
-ENV USER=claude
+ENV HOME=/app
 ENV SHELL=/bin/bash
 ENV TERM=xterm-256color
 
-# Playwright configuration for containers
-ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
-ENV PW_CHROMIUM_ARGS="--no-sandbox --disable-gpu"
+# Playwright configuration for OpenShift
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=true
+ENV PW_CHROMIUM_ARGS="--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=TranslateUI --disable-ipc-flooding-protection --no-first-run --no-default-browser-check --disable-web-security --disable-features=VizDisplayCompositor"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
-# Switch back to claude user for runtime
-USER claude
+# OpenShift runs with random UID - don't set USER directive
+# Ensure /app directory is accessible to any UID
+RUN chmod -R g=u /app && chmod -R g=u /usr/local && chmod g=u /etc/passwd
 
 # Run the application with virtual display
 CMD ["start-xvfb", "python", "main.py"]
