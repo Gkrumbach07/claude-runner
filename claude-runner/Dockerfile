@@ -28,6 +28,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Claude Code CLI and MCP servers globally
 RUN npm install -g @anthropic-ai/claude-code @playwright/mcp
 
+# Create a local package.json for proper Playwright dependency management
+RUN cd /app && echo '{"name":"claude-runner","dependencies":{"playwright":"*","@playwright/mcp":"*"}}' > package.json && \
+    npm install
+
 # Install Playwright system dependencies as root FIRST
 RUN npx playwright install-deps chromium
 
@@ -45,10 +49,10 @@ RUN mkdir -p /home/claude/.config/claude \
 # Install Playwright browsers as claude user (system deps already installed)
 ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
 RUN mkdir -p /tmp/.cache/ms-playwright && \
+    cd /app && \
     npx playwright install chromium && \
     echo "Browser installation completed for claude user" && \
-    ls -la /tmp/.cache/ms-playwright/ && \
-    npx playwright install --dry-run chromium
+    ls -la /tmp/.cache/ms-playwright/
 
 # Switch back to root to set permissions and verify installation
 USER root
@@ -74,7 +78,7 @@ RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\nexport
 USER claude
 
 # Verify browser installation works with headless test
-RUN npx playwright --version && \
+RUN cd /app && npx playwright --version && \
     echo "Playwright CLI verification successful" && \
     timeout 30s npx @playwright/mcp --headless --browser chromium --help || echo "MCP server help completed"
 
@@ -87,13 +91,15 @@ USER claude
 
 # Ensure browser is accessible and install if needed for MCP server
 RUN export PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright && \
+    cd /app && \
     npx playwright install chromium --force && \
     echo "Browser re-installed for MCP compatibility"
 
 # Register MCP server at USER scope only (works for both CLI and SDK)
-RUN cd /app && claude mcp add playwright \
-    --command "npx" \
-    --args "@playwright/mcp --headless --browser chromium --user-data-dir /tmp/.playwright-profile --isolated" \
+RUN cd /app && claude mcp add playwright npx "@playwright/mcp" \
+    --headless --browser chromium \
+    --user-data-dir /tmp/.playwright-profile \
+    --isolated \
     --env "PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright" \
     --env "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=false" \
     --env "PW_CHROMIUM_ARGS=--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding" \
