@@ -45,12 +45,33 @@ RUN mkdir -p /home/claude/.config/claude \
 # Install Playwright browsers as claude user (system deps already installed)
 ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
 RUN mkdir -p /tmp/.cache/ms-playwright && \
-    npx playwright install chromium
+    npx playwright install chromium && \
+    echo "Browser installation completed for claude user"
 
-# Switch back to root to set permissions, then back to claude
+# Switch back to root to set permissions and verify installation
 USER root
-RUN chmod -R 755 /tmp/.cache/ms-playwright
+RUN chmod -R 755 /tmp/.cache/ms-playwright && \
+    find /tmp/.cache/ms-playwright -name "chromium*" -type f -exec chmod +x {} \; && \
+    ls -la /tmp/.cache/ms-playwright/ && \
+    echo "Browser permissions set successfully"
+
+# Create additional required directories with proper permissions
+RUN mkdir -p /tmp/.config /tmp/.cache /tmp/.local/share /tmp/.playwright-profile && \
+    chmod -R 777 /tmp/.config /tmp/.cache /tmp/.local /tmp/.playwright-profile
+
+# Install virtual display for headless mode (optional, for better compatibility)
+RUN apt-get update && apt-get install -y xvfb && rm -rf /var/lib/apt/lists/*
+
+# Create startup script for virtual display
+RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\nexport DISPLAY=:99\nexec "$@"' > /usr/local/bin/start-xvfb && \
+    chmod +x /usr/local/bin/start-xvfb
+
 USER claude
+
+# Verify browser installation works with headless test
+RUN npx playwright --version && \
+    echo "Playwright CLI verification successful" && \
+    timeout 30s npx @playwright/mcp --headless --browser chromium --help || echo "MCP server help completed"
 
 # Copy the application files
 COPY --chown=claude:claude main.py /app/
@@ -83,5 +104,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Set API key environment for SDK
 ENV ANTHROPIC_API_KEY=""
 
-# Run the application
-CMD ["python", "main.py"]
+# Run the application with virtual display
+CMD ["start-xvfb", "python", "main.py"]

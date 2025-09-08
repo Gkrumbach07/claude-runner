@@ -3,11 +3,21 @@
     "playwright": {
       "type": "stdio",
       "command": "npx",
-      "args": ["@playwright/mcp", "--headless", "--browser", "chromium"],
+      "args": [
+        "@playwright/mcp",
+        "--headless",
+        "--browser",
+        "chromium",
+        "--user-data-dir",
+        "/tmp/.playwright-profile",
+        "--isolated"
+      ],
       "env": {
         "PLAYWRIGHT_BROWSERS_PATH": "/tmp/.cache/ms-playwright",
         "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "true",
-        "PW_CHROMIUM_ARGS": "--no-sandbox --disable-gpu"
+        "PW_CHROMIUM_ARGS": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding",
+        "DEBUG": "pw:api",
+        "DISPLAY": ":99"
       }
     }
   }

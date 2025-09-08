@@ -136,11 +136,11 @@ class ClaudeRunner:
             async with ClaudeSDKClient(options=options) as client:
                 logger.info("SDK Client initialized successfully with MCP tools")
 
-                # Test MCP connectivity first
+                # Enhanced MCP connectivity and browser test
                 try:
                     logger.info("Testing MCP browser tools connectivity...")
                     await client.query(
-                        "Please respond with 'MCP tools are working' if you can access your browser tools."
+                        "Test your browser tools: 1) List available tools 2) Try browser_snapshot without navigation to check browser initialization. Respond with tool names and any errors."
                     )
 
                     # Quick test response
@@ -151,14 +151,29 @@ class ClaudeRunner:
                             for block in message.content:
                                 if hasattr(block, "text"):
                                     test_response.append(block.text)
+                                elif hasattr(block, "type"):
+                                    logger.info(
+                                        f"[TOOL TEST] {block.type}: {getattr(block, 'name', 'unknown')}"
+                                    )
+                        if hasattr(message, "tool_use"):
+                            logger.info(f"[TOOL TEST USE] {message.tool_use}")
                         if type(message).__name__ == "ResultMessage":
                             break
                         timeout_count += 1
-                        if timeout_count > 100:  # Timeout after 100 messages
+                        if timeout_count > 50:  # Reduced timeout for diagnostic
+                            logger.warning("MCP test timed out after 50 messages")
                             break
 
                     test_result = "".join(test_response)
-                    logger.info(f"MCP Test Result: {test_result[:200]}...")
+                    logger.info(f"MCP Test Result: {test_result[:300]}...")
+
+                    if (
+                        "permission" in test_result.lower()
+                        or "error" in test_result.lower()
+                    ):
+                        logger.warning(
+                            "MCP test indicates potential permission or configuration issues"
+                        )
 
                 except Exception as e:
                     logger.error(f"MCP connectivity test failed: {e}")
