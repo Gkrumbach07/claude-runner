@@ -46,7 +46,9 @@ RUN mkdir -p /home/claude/.config/claude \
 ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
 RUN mkdir -p /tmp/.cache/ms-playwright && \
     npx playwright install chromium && \
-    echo "Browser installation completed for claude user"
+    echo "Browser installation completed for claude user" && \
+    ls -la /tmp/.cache/ms-playwright/ && \
+    npx playwright install --dry-run chromium
 
 # Switch back to root to set permissions and verify installation
 USER root
@@ -79,13 +81,38 @@ RUN npx playwright --version && \
 # Copy the application files
 COPY --chown=claude:claude main.py /app/
 COPY --chown=claude:claude CLAUDE.md /app/
-COPY --chown=claude:claude .mcp.json /app/
 
-# Make the script executable
+# Switch to claude user for setup
+USER claude
+
+# Ensure browser is accessible and install if needed for MCP server
+RUN export PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright && \
+    npx playwright install chromium --force && \
+    echo "Browser re-installed for MCP compatibility"
+
+# Register MCP server at USER scope only (works for both CLI and SDK)
+RUN cd /app && claude mcp add playwright \
+    --command "npx" \
+    --args "@playwright/mcp --headless --browser chromium --user-data-dir /tmp/.playwright-profile --isolated" \
+    --env "PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright" \
+    --env "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=false" \
+    --env "PW_CHROMIUM_ARGS=--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding" \
+    --env "DEBUG=pw:api" \
+    --env "DISPLAY=:99" \
+    --env "PLAYWRIGHT_MCP_WORK_DIR=/tmp/.playwright-mcp-work" \
+    --env "TMPDIR=/tmp" \
+    --env "TMP=/tmp" \
+    --env "HOME=/tmp" \
+    --scope local
+
+# Verify registration
+RUN claude mcp list && echo "MCP server registered successfully"
+
+# Make the script executable (as claude user)
 RUN chmod +x /app/main.py
 
-# Initialize Claude Code with API key (this creates necessary auth state)
-# We'll do this at runtime when we have the actual API key
+# Switch back to root for system-level setup
+USER root
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -106,6 +133,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Set API key environment for SDK
 ENV ANTHROPIC_API_KEY=""
+
+# Switch back to claude user for runtime
+USER claude
 
 # Run the application with virtual display
 CMD ["start-xvfb", "python", "main.py"]

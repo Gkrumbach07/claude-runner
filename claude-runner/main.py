@@ -121,13 +121,13 @@ class ClaudeRunner:
         try:
             logger.info("Initializing Claude Code Python SDK with MCP server...")
 
-            # Configure SDK with MCP server and browser tools
+            # Configure SDK with MCP server and browser tools (use user-level MCP registration)
             options = ClaudeCodeOptions(
                 system_prompt="You are a research assistant with browser automation capabilities via Playwright MCP tools.",
                 max_turns=5,
                 permission_mode="acceptEdits",
                 allowed_tools=["mcp__playwright"],
-                mcp_servers="/app/.mcp.json",
+                # mcp_servers=None,  # Use user-level MCP servers registered via claude mcp add
                 cwd="/app",
             )
 
