@@ -12,8 +12,13 @@ from datetime import datetime, timezone
 from claude_code_sdk import ClaudeSDKClient, ClaudeCodeOptions
 
 # Configure logging with immediate flush for container visibility
+log_level = (
+    logging.DEBUG
+    if os.getenv("DEBUG", "").lower() in ("true", "1", "yes")
+    else logging.INFO
+)
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format="%(asctime)s - %(levelname)s - %(message)s",
     stream=sys.stdout,
     force=True,
@@ -131,6 +136,33 @@ class ClaudeRunner:
             async with ClaudeSDKClient(options=options) as client:
                 logger.info("SDK Client initialized successfully with MCP tools")
 
+                # Test MCP connectivity first
+                try:
+                    logger.info("Testing MCP browser tools connectivity...")
+                    await client.query(
+                        "Please respond with 'MCP tools are working' if you can access your browser tools."
+                    )
+
+                    # Quick test response
+                    test_response = []
+                    timeout_count = 0
+                    async for message in client.receive_response():
+                        if hasattr(message, "content"):
+                            for block in message.content:
+                                if hasattr(block, "text"):
+                                    test_response.append(block.text)
+                        if type(message).__name__ == "ResultMessage":
+                            break
+                        timeout_count += 1
+                        if timeout_count > 100:  # Timeout after 100 messages
+                            break
+
+                    test_result = "".join(test_response)
+                    logger.info(f"MCP Test Result: {test_result[:200]}...")
+
+                except Exception as e:
+                    logger.error(f"MCP connectivity test failed: {e}")
+
                 # Send the research prompt
                 logger.info("Sending research query to Claude Code SDK...")
                 await client.query(prompt)
@@ -142,20 +174,46 @@ class ClaudeRunner:
 
                 logger.info("Processing streaming response from Claude...")
                 async for message in client.receive_response():
-                    # Stream content as it arrives
-                    if hasattr(message, "content"):
-                        for block in message.content:
-                            if hasattr(block, "text"):
-                                text = block.text
-                                response_text.append(text)
-                                # Stream model output to logs in real-time
-                                if text.strip():  # Only log non-empty text
-                                    logger.info(f"[MODEL OUTPUT] {text}")
+                    try:
+                        # Log the message type for debugging
+                        message_type = type(message).__name__
+                        logger.debug(f"Received message type: {message_type}")
 
-                    # Get final result with metadata
-                    if type(message).__name__ == "ResultMessage":
-                        cost = getattr(message, "total_cost_usd", 0.0)
-                        duration = getattr(message, "duration_ms", 0)
+                        # Stream content as it arrives
+                        if hasattr(message, "content"):
+                            for block in message.content:
+                                if hasattr(block, "text"):
+                                    text = block.text
+                                    response_text.append(text)
+                                    # Stream model output to logs in real-time
+                                    if text.strip():  # Only log non-empty text
+                                        logger.info(f"[MODEL OUTPUT] {text}")
+                                elif hasattr(block, "type"):
+                                    # Handle other content types (tool use, tool result, etc.)
+                                    logger.info(
+                                        f"[TOOL BLOCK] {block.type}: {getattr(block, 'name', 'unknown')}"
+                                    )
+
+                        # Handle tool use messages
+                        if hasattr(message, "tool_use"):
+                            logger.info(f"[TOOL USE] {message.tool_use}")
+
+                        # Handle error messages
+                        if hasattr(message, "error"):
+                            logger.error(f"[CLAUDE ERROR] {message.error}")
+
+                        # Get final result with metadata
+                        if message_type == "ResultMessage":
+                            cost = getattr(message, "total_cost_usd", 0.0)
+                            duration = getattr(message, "duration_ms", 0)
+                            logger.info(
+                                f"[RESULT] Cost: ${cost:.4f}, Duration: {duration}ms"
+                            )
+
+                    except Exception as e:
+                        logger.error(f"Error processing message: {e}")
+                        logger.debug(f"Message content: {message}")
+                        continue
 
                 # Combine response
                 result = "".join(response_text)

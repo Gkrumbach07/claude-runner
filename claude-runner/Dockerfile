@@ -28,9 +28,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Claude Code CLI and MCP servers globally
 RUN npm install -g @anthropic-ai/claude-code @playwright/mcp
 
-# Install Playwright browsers for MCP
-RUN npx playwright install chromium --with-deps
-
 # Create a non-root user FIRST
 RUN useradd --create-home --shell /bin/bash --uid 1000 claude
 
@@ -41,6 +38,16 @@ USER claude
 RUN mkdir -p /home/claude/.config/claude \
     && mkdir -p /home/claude/.local/share/claude \
     && mkdir -p /home/claude/.cache/claude
+
+# Install Playwright browsers as the claude user in a shared location
+ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
+RUN mkdir -p /tmp/.cache/ms-playwright && \
+    npx playwright install chromium --with-deps
+
+# Make browser cache world-readable for SCC compatibility
+USER root
+RUN chmod -R 755 /tmp/.cache/ms-playwright || true
+USER claude
 
 # Copy the application files
 COPY --chown=claude:claude main.py /app/
@@ -61,6 +68,10 @@ ENV HOME=/home/claude
 ENV USER=claude
 ENV SHELL=/bin/bash
 ENV TERM=xterm-256color
+
+# Playwright configuration for containers
+ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
+ENV PW_CHROMIUM_ARGS="--no-sandbox --disable-gpu"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
