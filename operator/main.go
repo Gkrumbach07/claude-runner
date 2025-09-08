@@ -221,15 +221,10 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 
-					// 🔐 Pod-level security context: enable proper sandbox support
-					SecurityContext: &corev1.PodSecurityContext{
-						FSGroup:        int64Ptr(1000),
-						RunAsUser:      int64Ptr(1000),
-						RunAsNonRoot:   boolPtr(true),
-						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-					},
+					// ⚠️ Let OpenShift SCC choose UID/GID dynamically (restricted-v2 compatible)
+					// SecurityContext omitted to allow SCC assignment
 
-					// 🔧 Shared memory volume for Chromium sandbox
+					// 🔧 Optional: Shared memory volume (may need to be removed if SCC restricts it)
 					Volumes: []corev1.Volume{
 						{
 							Name: "dshm",
@@ -246,13 +241,12 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 						{
 							Name:  "claude-runner",
 							Image: claudeRunnerImage,
-							// 🔒 Container-level security with sandbox support
+							// 🔒 Container-level security (SCC-compatible, no privileged capabilities)
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: boolPtr(false),
 								ReadOnlyRootFilesystem:   boolPtr(false), // Playwright needs to write temp files
 								Capabilities: &corev1.Capabilities{
-									Add:  []corev1.Capability{"SYS_ADMIN"}, // Required for Chromium sandbox
-									Drop: []corev1.Capability{"NET_RAW", "MKNOD", "AUDIT_WRITE", "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "SETPCAP", "NET_BIND_SERVICE", "SYS_CHROOT"},
+									Drop: []corev1.Capability{"ALL"}, // Drop all capabilities for security
 								},
 							},
 
@@ -283,14 +277,17 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 									},
 								},
 
-								// ✅ Use proper home directory with correct permissions
-								{Name: "HOME", Value: "/home/claude"},
-								{Name: "XDG_CONFIG_HOME", Value: "/home/claude/.config"},
-								{Name: "XDG_CACHE_HOME", Value: "/home/claude/.cache"},
-								{Name: "XDG_DATA_HOME", Value: "/home/claude/.local/share"},
+								// ✅ Use /tmp for SCC-assigned random UID (OpenShift compatible)
+								{Name: "HOME", Value: "/tmp"},
+								{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
+								{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
+								{Name: "XDG_DATA_HOME", Value: "/tmp/.local/share"},
 
-								// 🧊 Playwright/Chromium with sandbox enabled (secure configuration)
-								{Name: "PW_CHROMIUM_ARGS", Value: "--disable-gpu"},
+								// 🧊 Playwright/Chromium optimized for containers with shared memory
+								{Name: "PW_CHROMIUM_ARGS", Value: "--no-sandbox --disable-gpu"},
+
+								// 📁 Playwright browser cache in writable location
+								{Name: "PLAYWRIGHT_BROWSERS_PATH", Value: "/tmp/.cache/ms-playwright"},
 
 								// (Optional) proxy envs if your cluster requires them:
 								// { Name: "HTTPS_PROXY", Value: "http://proxy.corp:3128" },

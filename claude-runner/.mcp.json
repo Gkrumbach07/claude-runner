@@ -3,15 +3,11 @@
     "playwright": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "@playwright/mcp",
-        "--headless",
-        "--browser",
-        "chromium",
-        "--caps",
-        "vision"
-      ],
-      "env": {}
+      "args": ["@playwright/mcp", "--headless", "--browser", "chromium"],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "/tmp/.cache/ms-playwright",
+        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "false"
+      }
     }
   }
 }
