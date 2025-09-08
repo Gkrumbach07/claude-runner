@@ -207,7 +207,8 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 			},
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: int32Ptr(3),
+			BackoffLimit:          int32Ptr(3),
+			ActiveDeadlineSeconds: int64Ptr(1800), // 30 minute timeout for safety
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
@@ -220,32 +221,45 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 
-					// ⚠️ Do NOT set fsGroup/runAsUser here; let the SCC choose a random UID/GID.
-					// SecurityContext: &corev1.PodSecurityContext{ ... }  // <-- omit
+					// 🔐 Pod-level security context: enable proper sandbox support
+					SecurityContext: &corev1.PodSecurityContext{
+						FSGroup:        int64Ptr(1000),
+						RunAsUser:      int64Ptr(1000),
+						RunAsNonRoot:   boolPtr(true),
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+					},
 
-					// Optional: you can still mount /dev/shm, but with --disable-dev-shm-usage it isn't required.
-					// Keeping it empty by default keeps things simplest under restricted SCC.
-					// Volumes: []corev1.Volume{
-					//     {
-					//         Name: "dshm",
-					//         VolumeSource: corev1.VolumeSource{
-					//             EmptyDir: &corev1.EmptyDirVolumeSource{
-					//                 Medium:    corev1.StorageMediumMemory,
-					//                 SizeLimit: resource.NewQuantity(256*1024*1024, resource.BinarySI),
-					//             },
-					//         },
-					//     },
-					// },
+					// 🔧 Shared memory volume for Chromium sandbox
+					Volumes: []corev1.Volume{
+						{
+							Name: "dshm",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{
+									Medium:    corev1.StorageMediumMemory,
+									SizeLimit: resource.NewQuantity(256*1024*1024, resource.BinarySI),
+								},
+							},
+						},
+					},
 
 					Containers: []corev1.Container{
 						{
 							Name:  "claude-runner",
 							Image: claudeRunnerImage,
+							// 🔒 Container-level security with sandbox support
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: boolPtr(false),
+								ReadOnlyRootFilesystem:   boolPtr(false), // Playwright needs to write temp files
+								Capabilities: &corev1.Capabilities{
+									Add:  []corev1.Capability{"SYS_ADMIN"}, // Required for Chromium sandbox
+									Drop: []corev1.Capability{"NET_RAW", "MKNOD", "AUDIT_WRITE", "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "SETPCAP", "NET_BIND_SERVICE", "SYS_CHROOT"},
+								},
+							},
 
-							// If you choose to mount /dev/shm, add:
-							// VolumeMounts: []corev1.VolumeMount{
-							//     { Name: "dshm", MountPath: "/dev/shm" },
-							// },
+							// 📦 Mount shared memory volume
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "dshm", MountPath: "/dev/shm"},
+							},
 
 							Env: []corev1.EnvVar{
 								{Name: "RESEARCH_SESSION_NAME", Value: name},
@@ -269,14 +283,14 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 									},
 								},
 
-								// ✅ Make everything write under /tmp (SCC-friendly)
-								{Name: "HOME", Value: "/tmp"},
-								{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
-								{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
-								{Name: "XDG_DATA_HOME", Value: "/tmp/.local/share"},
+								// ✅ Use proper home directory with correct permissions
+								{Name: "HOME", Value: "/home/claude"},
+								{Name: "XDG_CONFIG_HOME", Value: "/home/claude/.config"},
+								{Name: "XDG_CACHE_HOME", Value: "/home/claude/.cache"},
+								{Name: "XDG_DATA_HOME", Value: "/home/claude/.local/share"},
 
-								// 🧊 Playwright/Chromium in restricted pods (no sandbox, avoid dev/shm reliance)
-								{Name: "PW_CHROMIUM_ARGS", Value: "--no-sandbox --disable-gpu --disable-dev-shm-usage"},
+								// 🧊 Playwright/Chromium with sandbox enabled (secure configuration)
+								{Name: "PW_CHROMIUM_ARGS", Value: "--disable-gpu"},
 
 								// (Optional) proxy envs if your cluster requires them:
 								// { Name: "HTTPS_PROXY", Value: "http://proxy.corp:3128" },

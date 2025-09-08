@@ -44,7 +44,6 @@ RUN mkdir -p /home/claude/.config/claude \
 
 # Copy the application files
 COPY --chown=claude:claude main.py /app/
-COPY --chown=claude:claude debug-claude.py /app/
 COPY --chown=claude:claude CLAUDE.md /app/
 COPY --chown=claude:claude .mcp.json /app/
 

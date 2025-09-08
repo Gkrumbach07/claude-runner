@@ -138,6 +138,9 @@ class ClaudeRunner:
                             if hasattr(block, "text"):
                                 text = block.text
                                 response_text.append(text)
+                                # Stream model output to logs in real-time
+                                if text.strip():  # Only log non-empty text
+                                    logger.info(f"[MODEL OUTPUT] {text}")
 
                     # Get final result with metadata
                     if type(message).__name__ == "ResultMessage":
