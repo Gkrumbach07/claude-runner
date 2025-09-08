@@ -96,20 +96,17 @@ RUN export PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright && \
     echo "Browser re-installed for MCP compatibility"
 
 # Register MCP server at USER scope only (works for both CLI and SDK)
-RUN cd /app && claude mcp add playwright npx "@playwright/mcp" \
-    --headless --browser chromium \
-    --user-data-dir /tmp/.playwright-profile \
-    --isolated \
-    --env "PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright" \
-    --env "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=false" \
-    --env "PW_CHROMIUM_ARGS=--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding" \
-    --env "DEBUG=pw:api" \
-    --env "DISPLAY=:99" \
-    --env "PLAYWRIGHT_MCP_WORK_DIR=/tmp/.playwright-mcp-work" \
-    --env "TMPDIR=/tmp" \
-    --env "TMP=/tmp" \
-    --env "HOME=/tmp" \
-    --scope local
+RUN cd /app && claude mcp add playwright npx "@playwright/mcp --headless --browser chromium --user-data-dir /tmp/.playwright-profile --isolated" \
+    -e "PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright" \
+    -e "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=false" \
+    -e "PW_CHROMIUM_ARGS=--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding" \
+    -e "DEBUG=pw:api" \
+    -e "DISPLAY=:99" \
+    -e "PLAYWRIGHT_MCP_WORK_DIR=/tmp/.playwright-mcp-work" \
+    -e "TMPDIR=/tmp" \
+    -e "TMP=/tmp" \
+    -e "HOME=/tmp" \
+    -s user
 
 # Verify registration
 RUN claude mcp list && echo "MCP server registered successfully"
