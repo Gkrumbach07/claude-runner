@@ -56,8 +56,11 @@ RUN chmod -R 755 /tmp/.cache/ms-playwright && \
     echo "Browser permissions set successfully"
 
 # Create additional required directories with proper permissions
-RUN mkdir -p /tmp/.config /tmp/.cache /tmp/.local/share /tmp/.playwright-profile && \
-    chmod -R 777 /tmp/.config /tmp/.cache /tmp/.local /tmp/.playwright-profile
+RUN mkdir -p /tmp/.config /tmp/.cache /tmp/.local/share /tmp/.playwright-profile /tmp/.playwright-mcp-work && \
+    chmod -R 777 /tmp/.config /tmp/.cache /tmp/.local /tmp/.playwright-profile /tmp/.playwright-mcp-work && \
+    mkdir -p /app/.playwright-mcp && \
+    chown -R claude:claude /app/.playwright-mcp && \
+    chmod -R 755 /app/.playwright-mcp
 
 # Install virtual display for headless mode (optional, for better compatibility)
 RUN apt-get update && apt-get install -y xvfb && rm -rf /var/lib/apt/lists/*
