@@ -25,8 +25,8 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install MCP server globally for direct SDK usage
-RUN npm install -g @playwright/mcp
+# Install Claude Code CLI and MCP server for direct SDK usage
+RUN npm install -g @anthropic-ai/claude-code @playwright/mcp
 
 # Create a local package.json for proper Playwright dependency management
 RUN cd /app && echo '{"name":"claude-runner","dependencies":{"playwright":"*","@playwright/mcp":"*"}}' > package.json && \
