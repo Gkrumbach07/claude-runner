@@ -25,8 +25,8 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Claude Code CLI and MCP servers globally
-RUN npm install -g @anthropic-ai/claude-code @playwright/mcp
+# Install MCP server globally for direct SDK usage
+RUN npm install -g @playwright/mcp
 
 # Create a local package.json for proper Playwright dependency management
 RUN cd /app && echo '{"name":"claude-runner","dependencies":{"playwright":"*","@playwright/mcp":"*"}}' > package.json && \
@@ -41,10 +41,10 @@ RUN useradd --create-home --shell /bin/bash --uid 1000 claude
 # Switch to claude user to set up Claude Code properly  
 USER claude
 
-# Create required directories for Claude Code
-RUN mkdir -p /home/claude/.config/claude \
-    && mkdir -p /home/claude/.local/share/claude \
-    && mkdir -p /home/claude/.cache/claude
+# Create required directories for user
+RUN mkdir -p /home/claude/.config \
+    && mkdir -p /home/claude/.local/share \
+    && mkdir -p /home/claude/.cache
 
 # Install Playwright browsers as claude user (system deps already installed)
 ENV PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright
@@ -77,39 +77,18 @@ RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\nexport
 
 USER claude
 
-# Verify browser installation works with headless test
+# Verify browser and MCP server installation
 RUN cd /app && npx playwright --version && \
     echo "Playwright CLI verification successful" && \
-    timeout 30s npx @playwright/mcp --headless --browser chromium --help || echo "MCP server help completed"
+    npx @playwright/mcp --help | head -5 && \
+    echo "MCP server verification completed"
 
 # Copy the application files
 COPY --chown=claude:claude main.py /app/
 COPY --chown=claude:claude CLAUDE.md /app/
 
-# Switch to claude user for setup
+# Switch to claude user for final setup
 USER claude
-
-# Ensure browser is accessible and install if needed for MCP server
-RUN export PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright && \
-    cd /app && \
-    npx playwright install chromium --force && \
-    echo "Browser re-installed for MCP compatibility"
-
-# Register MCP server at USER scope only (works for both CLI and SDK)
-RUN cd /app && claude mcp add playwright npx "@playwright/mcp --headless --browser chromium --user-data-dir /tmp/.playwright-profile --isolated" \
-    -e "PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright" \
-    -e "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=false" \
-    -e "PW_CHROMIUM_ARGS=--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding" \
-    -e "DEBUG=pw:api" \
-    -e "DISPLAY=:99" \
-    -e "PLAYWRIGHT_MCP_WORK_DIR=/tmp/.playwright-mcp-work" \
-    -e "TMPDIR=/tmp" \
-    -e "TMP=/tmp" \
-    -e "HOME=/tmp" \
-    -s user
-
-# Verify registration
-RUN claude mcp list && echo "MCP server registered successfully"
 
 # Make the script executable (as claude user)
 RUN chmod +x /app/main.py
@@ -133,9 +112,6 @@ ENV PW_CHROMIUM_ARGS="--no-sandbox --disable-gpu"
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
-
-# Set API key environment for SDK
-ENV ANTHROPIC_API_KEY=""
 
 # Switch back to claude user for runtime
 USER claude

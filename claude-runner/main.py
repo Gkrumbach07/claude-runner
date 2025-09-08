@@ -121,13 +121,40 @@ class ClaudeRunner:
         try:
             logger.info("Initializing Claude Code Python SDK with MCP server...")
 
-            # Configure SDK with MCP server and browser tools (use user-level MCP registration)
+            # Configure MCP servers directly in the SDK (more reliable than CLI registration)
+            mcp_servers = {
+                "playwright": {
+                    "command": "npx",
+                    "args": [
+                        "@playwright/mcp",
+                        "--headless",
+                        "--browser",
+                        "chromium",
+                        "--user-data-dir",
+                        "/tmp/.playwright-profile",
+                        "--isolated",
+                    ],
+                    "env": {
+                        "PLAYWRIGHT_BROWSERS_PATH": "/tmp/.cache/ms-playwright",
+                        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "false",
+                        "PW_CHROMIUM_ARGS": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins",
+                        "DEBUG": "pw:api",
+                        "DISPLAY": ":99",
+                        "PLAYWRIGHT_MCP_WORK_DIR": "/tmp/.playwright-mcp-work",
+                        "TMPDIR": "/tmp",
+                        "TMP": "/tmp",
+                        "HOME": "/tmp",
+                    },
+                }
+            }
+
+            # Configure SDK with direct MCP server configuration
             options = ClaudeCodeOptions(
                 system_prompt="You are a research assistant with browser automation capabilities via Playwright MCP tools.",
                 max_turns=5,
                 permission_mode="acceptEdits",
                 allowed_tools=["mcp__playwright"],
-                # mcp_servers=None,  # Use user-level MCP servers registered via claude mcp add
+                mcp_servers=mcp_servers,
                 cwd="/app",
             )
 
