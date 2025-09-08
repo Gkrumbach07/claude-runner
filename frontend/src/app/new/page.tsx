@@ -285,7 +285,7 @@ export default function NewResearchSessionPage() {
                 </div>
               )}
 
-              <div className="flex gap-3">
+              <div className="flex gap-4">
                 <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -295,11 +295,7 @@ export default function NewResearchSessionPage() {
                     : "Create Research Session"}
                 </Button>
                 <Link href="/">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isSubmitting}
-                  >
+                  <Button type="button" variant="link" disabled={isSubmitting}>
                     Cancel
                   </Button>
                 </Link>

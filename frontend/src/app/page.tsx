@@ -203,7 +203,7 @@ export default function HomePage() {
             Manage your Claude research jobs
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-4">
           <Button variant="outline" onClick={handleRefresh} disabled={loading}>
             <RefreshCw
               className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
@@ -284,12 +284,13 @@ export default function HomePage() {
                           {session.status?.phase || "Pending"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="min-w-[120px]">
+                      <TableCell className="min-w-[120px] max-w-[200px]">
                         <a
                           href={session.spec.websiteURL}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline max-w-[200px] truncate block"
+                          className="text-blue-600 hover:underline truncate block w-full"
+                          title={session.spec.websiteURL}
                         >
                           {session.spec.websiteURL}
                         </a>

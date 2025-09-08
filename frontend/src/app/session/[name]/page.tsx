@@ -222,7 +222,7 @@ export default function SessionDetailPage() {
             Back to Sessions
           </Button>
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
           <Button variant="outline" onClick={handleRefresh} disabled={loading}>
             <RefreshCw
               className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
@@ -253,12 +253,7 @@ export default function SessionDetailPage() {
                 phase === "Running"
               ) {
                 buttons.push(
-                  <Button
-                    key="stop"
-                    variant="outline"
-                    onClick={handleStop}
-                    className="text-orange-600 hover:text-orange-700"
-                  >
+                  <Button key="stop" variant="secondary" onClick={handleStop}>
                     <Square className="w-4 h-4 mr-2" />
                     Stop
                   </Button>
@@ -275,9 +270,8 @@ export default function SessionDetailPage() {
                 buttons.push(
                   <Button
                     key="restart"
-                    variant="outline"
+                    variant="default"
                     onClick={handleRestart}
-                    className="text-blue-600 hover:text-blue-700"
                   >
                     <RotateCcw className="w-4 h-4 mr-2" />
                     Restart
@@ -290,9 +284,8 @@ export default function SessionDetailPage() {
                 buttons.push(
                   <Button
                     key="delete"
-                    variant="outline"
+                    variant="destructive"
                     onClick={handleDelete}
-                    className="text-red-600 hover:text-red-700"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     Delete

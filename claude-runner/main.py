@@ -102,189 +102,62 @@ class ClaudeRunner:
             sys.exit(1)
 
     async def _run_claude_code(self, prompt: str) -> str:
-        """Run Claude Code using Python SDK with Kubernetes debugging"""
+        """Run Claude Code using Python SDK with MCP browser automation"""
         try:
-            logger.info("=== PYTHON SDK WITH KUBERNETES DEBUGGING ===")
+            logger.info("Initializing Claude Code Python SDK with MCP server...")
 
-            # First test network connectivity
-            await self._debug_network_connectivity()
-
-            # Test Claude CLI binary directly
-            await self._debug_claude_binary()
-
-            logger.info("Initializing Claude Code Python SDK...")
-
-            # MINIMAL SDK options - remove everything that could cause hanging
-            logger.info(
-                "Testing with MINIMAL SDK configuration (no MCP, no special tools)"
-            )
+            # Configure SDK with MCP server and browser tools
             options = ClaudeCodeOptions(
-                system_prompt="You are a helpful research assistant. Analyze this website and provide insights.",
-                max_turns=2,
+                system_prompt="You are a research assistant with browser automation capabilities via Playwright MCP tools.",
+                max_turns=5,
                 permission_mode="acceptEdits",
-                # Remove ALL MCP-related configurations that might hang
-                # allowed_tools=["mcp__playwright"],  # Comment out - might cause hanging
-                # mcp_servers="/app/.mcp.json",  # Comment out - might cause hanging
+                allowed_tools=["mcp__playwright"],
+                mcp_servers="/app/.mcp.json",
                 cwd="/app",
             )
 
-            logger.info(f"SDK Options configured. Prompt length: {len(prompt)} chars")
-            logger.info("Attempting to create ClaudeSDKClient...")
+            logger.info("Creating Claude SDK client with MCP browser automation...")
 
-            # Use ClaudeSDKClient with explicit error handling
-            try:
-                # Add timeout wrapper around SDK initialization
-                import asyncio
+            async with ClaudeSDKClient(options=options) as client:
+                logger.info("SDK Client initialized successfully with MCP tools")
 
-                async def run_sdk():
-                    logger.info("🔄 Attempting SDK Client initialization...")
-                    try:
-                        async with ClaudeSDKClient(options=options) as client:
-                            logger.info("✅ SDK Client initialized successfully!")
+                # Send the research prompt
+                logger.info("Sending research query to Claude Code SDK...")
+                await client.query(prompt)
 
-                            # Send a simple test query first (no browser automation)
-                            simple_prompt = f"Please analyze this website URL: {self.website_url} and provide insights about: {self.prompt}. Note: This is a text-only analysis since browser tools are not available in this environment."
+                # Collect streaming response
+                response_text = []
+                cost = 0.0
+                duration = 0
 
-                            logger.info(
-                                "📤 Sending simplified query to Claude Code SDK..."
-                            )
-                            await client.query(simple_prompt)
+                logger.info("Processing streaming response from Claude...")
+                async for message in client.receive_response():
+                    # Stream content as it arrives
+                    if hasattr(message, "content"):
+                        for block in message.content:
+                            if hasattr(block, "text"):
+                                text = block.text
+                                response_text.append(text)
 
-                            # Collect streaming response
-                            response_text = []
-                            cost = 0.0
-                            duration = 0
+                    # Get final result with metadata
+                    if type(message).__name__ == "ResultMessage":
+                        cost = getattr(message, "total_cost_usd", 0.0)
+                        duration = getattr(message, "duration_ms", 0)
 
-                            logger.info(
-                                "📥 Receiving streaming response from Claude Code SDK..."
-                            )
-                            async for message in client.receive_response():
-                                # Stream content as it arrives
-                                if hasattr(message, "content"):
-                                    for block in message.content:
-                                        if hasattr(block, "text"):
-                                            text = block.text
-                                            logger.info(
-                                                f"Claude: {text[:100]}{'...' if len(text) > 100 else ''}"
-                                            )
-                                            response_text.append(text)
+                # Combine response
+                result = "".join(response_text)
 
-                                # Get final result with metadata
-                                if type(message).__name__ == "ResultMessage":
-                                    cost = getattr(message, "total_cost_usd", 0.0)
-                                    duration = getattr(message, "duration_ms", 0)
+                if not result.strip():
+                    raise RuntimeError("Claude Code SDK returned empty result")
 
-                            # Combine response
-                            result = "".join(response_text)
+                logger.info(f"Research completed successfully ({len(result)} chars)")
+                logger.info(f"Cost: ${cost:.4f}, Duration: {duration}ms")
 
-                            if not result.strip():
-                                raise RuntimeError(
-                                    "Claude Code SDK returned empty result"
-                                )
-
-                            logger.info(
-                                f"✅ Claude Code SDK completed successfully ({len(result)} chars)"
-                            )
-                            logger.info(f"💰 Cost: ${cost:.4f}")
-                            logger.info(f"⏱️ Duration: {duration}ms")
-
-                            return result
-                    except Exception as init_error:
-                        logger.error(
-                            f"❌ SDK Client initialization failed: {str(init_error)}"
-                        )
-                        logger.error(f"Error type: {type(init_error).__name__}")
-                        raise
-
-                # Run with timeout to identify where it's hanging
-                logger.info("🚀 Starting MINIMAL SDK execution with 60s timeout...")
-                result = await asyncio.wait_for(run_sdk(), timeout=60.0)
                 return result
-
-            except asyncio.TimeoutError:
-                logger.error(
-                    "❌ MINIMAL SDK timed out after 60 seconds - this indicates a fundamental SDK issue in Kubernetes"
-                )
-                logger.error(
-                    "Even without MCP tools, the SDK fails to initialize in Kubernetes environment"
-                )
-                raise RuntimeError(
-                    "Claude Code SDK timed out even in minimal mode - Kubernetes environment issue"
-                )
-            except Exception as sdk_error:
-                logger.error(f"❌ SDK Error: {str(sdk_error)}")
-                logger.error(f"Error type: {type(sdk_error).__name__}")
-                raise
 
         except Exception as e:
             logger.error(f"Error running Claude Code SDK: {str(e)}")
             raise
-
-    async def _debug_network_connectivity(self):
-        """Debug network connectivity in Kubernetes environment"""
-        try:
-            import subprocess
-
-            logger.info("=== NETWORK CONNECTIVITY TEST ===")
-
-            # Test DNS resolution
-            try:
-                result = subprocess.run(
-                    ["nslookup", "api.anthropic.com"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                logger.info(f"DNS test: {result.returncode == 0}")
-                if result.returncode != 0:
-                    logger.error(f"DNS resolution failed: {result.stderr}")
-            except Exception as e:
-                logger.error(f"DNS test failed: {e}")
-
-            # Test HTTP connectivity
-            try:
-                result = subprocess.run(
-                    ["curl", "-I", "https://api.anthropic.com", "--max-time", "10"],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                logger.info(f"HTTP connectivity test: {result.returncode == 0}")
-                if result.returncode != 0:
-                    logger.error(f"HTTP connectivity failed: {result.stderr}")
-                else:
-                    logger.info(f"HTTP response headers: {result.stdout[:200]}")
-            except Exception as e:
-                logger.error(f"HTTP test failed: {e}")
-
-        except Exception as e:
-            logger.error(f"Network debugging failed: {e}")
-
-    async def _debug_claude_binary(self):
-        """Debug Claude CLI binary directly"""
-        try:
-            import subprocess
-
-            logger.info("=== CLAUDE BINARY DEBUG ===")
-            logger.info("Running dedicated Claude CLI debugging script...")
-
-            # Run our dedicated debugging script
-            result = subprocess.run(
-                ["python", "/app/debug-claude.py"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            logger.info("Claude binary debug script output:")
-            logger.info(result.stdout)
-
-            if result.stderr:
-                logger.info("Claude binary debug script errors:")
-                logger.info(result.stderr)
-
-        except Exception as e:
-            logger.error(f"Claude binary debugging failed: {e}")
 
     def _create_research_prompt(self) -> str:
         """Create a comprehensive research prompt for Claude Code with MCP browser instructions"""
