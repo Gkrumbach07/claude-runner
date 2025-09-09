@@ -30,6 +30,7 @@ var (
 	dynamicClient dynamic.Interface
 	namespace     string
 	minioEndpoint string
+	minioPublic   bool
 )
 
 func main() {
@@ -49,6 +50,9 @@ func main() {
 	if minioEndpoint == "" {
 		minioEndpoint = "http://minio.minio.svc:9000"
 	}
+
+	// Check if MinIO bucket is public (for proxy vs presign mode)
+	minioPublic = os.Getenv("MINIO_PUBLIC_BUCKET") == "true"
 
 	// Setup Gin router
 	r := gin.Default()
@@ -79,8 +83,8 @@ func main() {
 	api.GET("/sites/:cr/health", checkSiteHealth)
 	
 	// Static site proxy routes (must be after API routes)
-	r.GET("/:cr/*path", proxyToStaticSite)
-	r.GET("/publish/:cr/*path", proxyToStaticSite)
+	r.GET("/publish/:cr/*path", proxyToStaticSite)  // Path-based routing
+	r.GET("/*path", proxyToStaticSite)              // Wildcard subdomain routing (catch-all)
 	
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
@@ -762,19 +766,32 @@ func proxyToStaticSite(c *gin.Context) {
 			filePath = strings.Join(parts[1:], "/")
 		}
 	} else {
-		// Direct routing: /<cr>/path
-		parts := strings.Split(strings.TrimPrefix(c.Request.URL.Path, "/"), "/")
-		if len(parts) < 1 || parts[0] == "" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "Site not found",
-				"message": "Please specify a site name",
-			})
-			return
+		// Check if this is subdomain routing
+		host := c.Request.Host
+		if strings.Contains(host, ".sites.") {
+			// Wildcard subdomain: <cr>.sites.apps.domain
+			parts := strings.Split(host, ".")
+			if len(parts) >= 3 && parts[1] == "sites" {
+				siteName = parts[0]
+				filePath = strings.TrimPrefix(c.Request.URL.Path, "/")
+			}
+		} else {
+			// Direct path routing: /<cr>/path (fallback)
+			parts := strings.Split(strings.TrimPrefix(c.Request.URL.Path, "/"), "/")
+			if len(parts) >= 1 && parts[0] != "" {
+				siteName = parts[0]
+				if len(parts) > 1 {
+					filePath = strings.Join(parts[1:], "/")
+				}
+			}
 		}
-		siteName = parts[0]
-		if len(parts) > 1 {
-			filePath = strings.Join(parts[1:], "/")
-		}
+	}
+	
+	// If no site name found, this might be main UI request
+	if siteName == "" {
+		// Let it fall through to serve Next.js frontend
+		c.Next()
+		return
 	}
 	
 	// If no file path specified, default to index.html

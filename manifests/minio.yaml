@@ -1,28 +1,21 @@
 ---
-# MinIO Namespace
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: minio
----
-# MinIO Secrets
+# MinIO for static site storage
 apiVersion: v1
 kind: Secret
 metadata:
-  name: minio-credentials
-  namespace: minio
+  name: minio-creds
+  namespace: default
 type: Opaque
 data:
   # admin:password123 (base64 encoded)
   MINIO_ROOT_USER: YWRtaW4=
   MINIO_ROOT_PASSWORD: cGFzc3dvcmQxMjM=
 ---
-# MinIO PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: minio-storage
-  namespace: minio
+  namespace: default
 spec:
   accessModes:
     - ReadWriteOnce
@@ -30,12 +23,11 @@ spec:
     requests:
       storage: 50Gi
 ---
-# MinIO Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: minio
-  namespace: minio
+  namespace: default
   labels:
     app: minio
 spec:
@@ -60,12 +52,12 @@ spec:
         - name: MINIO_ROOT_USER
           valueFrom:
             secretKeyRef:
-              name: minio-credentials
+              name: minio-creds
               key: MINIO_ROOT_USER
         - name: MINIO_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: minio-credentials
+              name: minio-creds
               key: MINIO_ROOT_PASSWORD
         ports:
         - containerPort: 9000
@@ -82,29 +74,16 @@ spec:
           limits:
             memory: "2Gi"
             cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /minio/health/live
-            port: 9000
-          initialDelaySeconds: 30
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /minio/health/ready
-            port: 9000
-          initialDelaySeconds: 10
-          periodSeconds: 10
       volumes:
       - name: storage
         persistentVolumeClaim:
           claimName: minio-storage
 ---
-# MinIO API Service
 apiVersion: v1
 kind: Service
 metadata:
   name: minio
-  namespace: minio
+  namespace: default
   labels:
     app: minio
 spec:
@@ -114,35 +93,17 @@ spec:
   - name: api
     port: 9000
     targetPort: 9000
-    protocol: TCP
   - name: console
     port: 9001
     targetPort: 9001
-    protocol: TCP
   type: ClusterIP
 ---
-# MinIO Console Route (for admin access)
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: minio-console
-  namespace: minio
-spec:
-  host: minio-console.apps.example.com
-  to:
-    kind: Service
-    name: minio
-  port:
-    targetPort: console
-  tls:
-    termination: edge
----
-# MinIO Client Job (for initial setup)
+# Setup job to create bucket and set anonymous download
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: minio-setup
-  namespace: minio
+  namespace: default
 spec:
   template:
     spec:
@@ -156,7 +117,7 @@ spec:
         - |
           set -e
           echo "Waiting for MinIO to be ready..."
-          until mc alias set myminio http://minio.minio.svc:9000 admin password123; do
+          until mc alias set myminio http://minio.default.svc:9000 admin password123; do
             echo "MinIO not ready, waiting..."
             sleep 5
           done
@@ -164,14 +125,7 @@ spec:
           echo "Creating sites bucket..."
           mc mb myminio/sites --ignore-existing
           
-          echo "Setting anonymous GET policy for sites bucket..."
+          echo "Setting anonymous download policy for sites bucket..."
           mc anonymous set download myminio/sites
           
-          echo "Verifying bucket policy..."
-          mc anonymous get myminio/sites
-          
           echo "MinIO setup complete!"
-        env:
-        - name: MC_HOST_myminio
-          value: "http://admin:password123@minio.minio.svc:9000"
-      backoffLimit: 5

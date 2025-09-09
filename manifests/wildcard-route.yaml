@@ -1,0 +1,22 @@
+---
+# Wildcard route for static sites - points to existing backend
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: sites-wildcard
+  namespace: claude-research
+  labels:
+    app: claude-research
+    component: static-sites
+spec:
+  host: "*.sites.apps.example.com"
+  to:
+    kind: Service
+    name: backend-service
+    weight: 100
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: Subdomain
