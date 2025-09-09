@@ -191,31 +191,6 @@ GET  /api/trace-viewer/{session}/{trace}
 - Trace viewer integration errors
 - Storage cleanup operations
 
-## Test Plan
-
-### Unit Tests
-- Trace file generation and validation
-- Artifact URL generation and access control
-- CRD field updates and validation
-- Storage cleanup functionality
-
-### Integration Tests
-- End-to-end trace recording and viewing
-- Multiple concurrent session trace handling
-- Artifact persistence across pod restarts
-- Trace viewer iframe integration
-
-### Performance Tests
-- Trace recording impact on research session duration
-- Large trace file handling and transfer
-- Concurrent trace viewer usage
-- Storage performance under high load
-
-### Security Tests
-- Unauthorized artifact access attempts
-- Cross-session trace access validation
-- Trace data sanitization verification
-- CORS policy enforcement
 
 ## Risks and Mitigations
 
