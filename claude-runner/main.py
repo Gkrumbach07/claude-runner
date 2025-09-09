@@ -209,7 +209,7 @@ class ClaudeRunner:
             # Configure SDK with direct MCP server configuration
             options = ClaudeCodeOptions(
                 system_prompt="You are a research assistant with browser automation capabilities via Playwright MCP tools.",
-                max_turns=5,
+                max_turns=25,
                 permission_mode="acceptEdits",
                 allowed_tools=["mcp__playwright"],
                 mcp_servers=mcp_servers,
