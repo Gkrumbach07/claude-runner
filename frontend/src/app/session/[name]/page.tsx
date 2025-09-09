@@ -15,13 +15,14 @@ import {
   Trash2,
 } from "lucide-react";
 
-// PatternFly imports
-import { Truncate } from "@patternfly/react-core";
+// Custom components
+import { Message } from "@/components/ui/message";
 
 // Markdown rendering
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import type { Components } from "react-markdown";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -58,6 +59,70 @@ const getPhaseColor = (phase: ResearchSessionPhase) => {
     default:
       return "bg-gray-100 text-gray-800";
   }
+};
+
+// Markdown components for final output
+const outputComponents: Components = {
+  code: ({
+    inline,
+    className,
+    children,
+    ...props
+  }: {
+    inline?: boolean;
+    className?: string;
+    children?: React.ReactNode;
+  } & React.HTMLAttributes<HTMLElement>) => {
+    const match = /language-(\w+)/.exec(className || "");
+    return !inline && match ? (
+      <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
+        <code
+          className={className}
+          {...(props as React.HTMLAttributes<HTMLElement>)}
+        >
+          {children}
+        </code>
+      </pre>
+    ) : (
+      <code
+        className="bg-gray-100 px-1 py-0.5 rounded text-sm"
+        {...(props as React.HTMLAttributes<HTMLElement>)}
+      >
+        {children}
+      </code>
+    );
+  },
+  h1: ({ children }) => (
+    <h1 className="text-2xl font-bold text-gray-900 mb-4 mt-6 border-b pb-2">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="text-xl font-semibold text-gray-800 mb-3 mt-5">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="text-lg font-medium text-gray-800 mb-2 mt-4">{children}</h3>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-4 border-blue-500 pl-4 py-2 bg-blue-50 italic text-gray-700 my-4">
+      {children}
+    </blockquote>
+  ),
+  ul: ({ children }) => (
+    <ul className="list-disc list-inside space-y-1 my-3 text-gray-700">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="list-decimal list-inside space-y-1 my-3 text-gray-700">
+      {children}
+    </ol>
+  ),
+  p: ({ children }) => (
+    <p className="text-gray-700 leading-relaxed mb-3">{children}</p>
+  ),
 };
 
 export default function SessionDetailPage() {
@@ -314,22 +379,17 @@ export default function SessionDetailPage() {
             <CardContent>
               <div className="flex items-center space-x-2">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center">
-                    <Truncate
-                      content={session.spec.websiteURL}
-                      tooltipPosition="top"
-                      position="end"
-                      className="text-blue-600 hover:underline"
-                    />
-                    <a
-                      href={session.spec.websiteURL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ml-2 flex-shrink-0"
-                    >
-                      <ExternalLink className="w-4 h-4 text-blue-600 hover:text-blue-800" />
-                    </a>
-                  </div>
+                  <a
+                    href={session.spec.websiteURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center text-blue-600 hover:underline"
+                  >
+                    <span className="truncate block max-w-full">
+                      {session.spec.websiteURL}
+                    </span>
+                    <ExternalLink className="w-4 h-4 ml-2 flex-shrink-0 text-blue-600 hover:text-blue-800" />
+                  </a>
                 </div>
               </div>
             </CardContent>
@@ -431,7 +491,7 @@ export default function SessionDetailPage() {
           </Card>
         )}
 
-        {/* Real-time Messages Progress - PatternFly Chatbot Style */}
+        {/* Real-time Messages Progress*/}
         {((session.status?.messages && session.status.messages.length > 0) ||
           session.status?.phase === "Running" ||
           session.status?.phase === "Pending" ||
@@ -451,196 +511,32 @@ export default function SessionDetailPage() {
               <div className="max-h-96 overflow-y-auto space-y-4 bg-gray-50 rounded-lg p-4">
                 {/* Display all existing messages */}
                 {session.status?.messages?.map((message, index) => (
-                  <div key={index} className="mb-4">
-                    <div className="flex items-start space-x-3">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                          <span className="text-white text-xs font-semibold">
-                            AI
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="bg-white rounded-lg border shadow-sm p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <Badge variant="outline" className="text-xs">
-                              Claude AI
-                            </Badge>
-                            <span className="text-xs text-gray-500">
-                              Message {index + 1}
-                            </span>
-                          </div>
-                          <div className="text-sm text-gray-800">
-                            {message.length > 500 ? (
-                              <div>
-                                <ReactMarkdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    code: ({
-                                      inline,
-                                      className,
-                                      children,
-                                      ...props
-                                    }: any) => {
-                                      return inline ? (
-                                        <code
-                                          className="bg-gray-100 px-1 py-0.5 rounded text-xs"
-                                          {...props}
-                                        >
-                                          {children}
-                                        </code>
-                                      ) : (
-                                        <pre className="bg-gray-800 text-gray-100 p-2 rounded text-xs overflow-x-auto">
-                                          <code
-                                            className={className}
-                                            {...props}
-                                          >
-                                            {children}
-                                          </code>
-                                        </pre>
-                                      );
-                                    },
-                                    p: ({ children }: any) => (
-                                      <p className="text-gray-600 leading-relaxed mb-2 text-sm">
-                                        {children}
-                                      </p>
-                                    ),
-                                    h1: ({ children }: any) => (
-                                      <h1 className="text-lg font-bold text-gray-800 mb-2">
-                                        {children}
-                                      </h1>
-                                    ),
-                                    h2: ({ children }: any) => (
-                                      <h2 className="text-md font-semibold text-gray-800 mb-2">
-                                        {children}
-                                      </h2>
-                                    ),
-                                    h3: ({ children }: any) => (
-                                      <h3 className="text-sm font-medium text-gray-800 mb-1">
-                                        {children}
-                                      </h3>
-                                    ),
-                                  }}
-                                >
-                                  {message.slice(0, 500)}
-                                </ReactMarkdown>
-                                <Truncate
-                                  content={message}
-                                  tooltipPosition="top"
-                                  position="end"
-                                  className="text-blue-600 cursor-pointer text-xs"
-                                />
-                              </div>
-                            ) : (
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  code: ({
-                                    inline,
-                                    className,
-                                    children,
-                                    ...props
-                                  }: any) => {
-                                    return inline ? (
-                                      <code
-                                        className="bg-gray-100 px-1 py-0.5 rounded text-xs"
-                                        {...props}
-                                      >
-                                        {children}
-                                      </code>
-                                    ) : (
-                                      <pre className="bg-gray-800 text-gray-100 p-2 rounded text-xs overflow-x-auto">
-                                        <code className={className} {...props}>
-                                          {children}
-                                        </code>
-                                      </pre>
-                                    );
-                                  },
-                                  p: ({ children }: any) => (
-                                    <p className="text-gray-600 leading-relaxed mb-2 text-sm">
-                                      {children}
-                                    </p>
-                                  ),
-                                  h1: ({ children }: any) => (
-                                    <h1 className="text-lg font-bold text-gray-800 mb-2">
-                                      {children}
-                                    </h1>
-                                  ),
-                                  h2: ({ children }: any) => (
-                                    <h2 className="text-md font-semibold text-gray-800 mb-2">
-                                      {children}
-                                    </h2>
-                                  ),
-                                  h3: ({ children }: any) => (
-                                    <h3 className="text-sm font-medium text-gray-800 mb-1">
-                                      {children}
-                                    </h3>
-                                  ),
-                                }}
-                              >
-                                {message}
-                              </ReactMarkdown>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <Message
+                    key={index}
+                    role="bot"
+                    content={message}
+                    timestamp={`Message ${index + 1}`}
+                    name="Claude AI"
+                  />
                 ))}
 
                 {/* Show loading message if still processing */}
                 {(session.status?.phase === "Running" ||
                   session.status?.phase === "Pending" ||
                   session.status?.phase === "Creating") && (
-                  <div className="mb-4">
-                    <div className="flex items-start space-x-3">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center animate-pulse">
-                          <span className="text-white text-xs font-semibold">
-                            AI
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="bg-white rounded-lg border shadow-sm p-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge
-                              variant="outline"
-                              className="text-xs animate-pulse"
-                            >
-                              Claude AI
-                            </Badge>
-                            <span className="text-xs text-gray-500">
-                              Analyzing...
-                            </span>
-                          </div>
-                          <div className="text-sm text-gray-600">
-                            {session.status?.phase === "Pending"
-                              ? "Research session is queued and waiting to start..."
-                              : session.status?.phase === "Creating"
-                              ? "Creating research environment..."
-                              : "Analyzing the website and generating insights..."}
-                            <div className="flex items-center mt-2">
-                              <div className="flex space-x-1">
-                                <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"></div>
-                                <div
-                                  className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"
-                                  style={{ animationDelay: "0.1s" }}
-                                ></div>
-                                <div
-                                  className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"
-                                  style={{ animationDelay: "0.2s" }}
-                                ></div>
-                              </div>
-                              <span className="ml-2 text-xs text-gray-400">
-                                Thinking...
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <Message
+                    role="bot"
+                    content={
+                      session.status?.phase === "Pending"
+                        ? "Research session is queued and waiting to start..."
+                        : session.status?.phase === "Creating"
+                        ? "Creating research environment..."
+                        : "Analyzing the website and generating insights..."
+                    }
+                    timestamp="Analyzing..."
+                    name="Claude AI"
+                    isLoading={true}
+                  />
                 )}
 
                 {/* Show empty state if no messages yet */}
@@ -673,60 +569,7 @@ export default function SessionDetailPage() {
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}
-                  components={{
-                    code: ({ inline, className, children, ...props }: any) => {
-                      const match = /language-(\w+)/.exec(className || "");
-                      return !inline && match ? (
-                        <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        </pre>
-                      ) : (
-                        <code
-                          className="bg-gray-100 px-1 py-0.5 rounded text-sm"
-                          {...props}
-                        >
-                          {children}
-                        </code>
-                      );
-                    },
-                    h1: ({ children }: any) => (
-                      <h1 className="text-2xl font-bold text-gray-900 mb-4 mt-6 border-b pb-2">
-                        {children}
-                      </h1>
-                    ),
-                    h2: ({ children }: any) => (
-                      <h2 className="text-xl font-semibold text-gray-800 mb-3 mt-5">
-                        {children}
-                      </h2>
-                    ),
-                    h3: ({ children }: any) => (
-                      <h3 className="text-lg font-medium text-gray-800 mb-2 mt-4">
-                        {children}
-                      </h3>
-                    ),
-                    blockquote: ({ children }: any) => (
-                      <blockquote className="border-l-4 border-blue-500 pl-4 py-2 bg-blue-50 italic text-gray-700 my-4">
-                        {children}
-                      </blockquote>
-                    ),
-                    ul: ({ children }: any) => (
-                      <ul className="list-disc list-inside space-y-1 my-3 text-gray-700">
-                        {children}
-                      </ul>
-                    ),
-                    ol: ({ children }: any) => (
-                      <ol className="list-decimal list-inside space-y-1 my-3 text-gray-700">
-                        {children}
-                      </ol>
-                    ),
-                    p: ({ children }: any) => (
-                      <p className="text-gray-700 leading-relaxed mb-3">
-                        {children}
-                      </p>
-                    ),
-                  }}
+                  components={outputComponents}
                 >
                   {session.status.finalOutput}
                 </ReactMarkdown>

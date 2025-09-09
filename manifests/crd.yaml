@@ -24,6 +24,9 @@ spec:
               websiteURL:
                 type: string
                 description: "The website URL to analyze"
+              displayName:
+                type: string
+                description: "A descriptive display name for the research session generated from prompt and website"
               llmSettings:
                 type: object
                 properties:

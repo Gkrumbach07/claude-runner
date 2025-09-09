@@ -56,6 +56,9 @@ class ClaudeRunner:
             # Verify browser setup before starting
             await self._verify_browser_setup()
 
+            # Generate and set display name
+            await self._generate_and_set_display_name()
+
             # Update status to indicate we're starting
             await self.update_session_status(
                 {
@@ -172,6 +175,86 @@ class ClaudeRunner:
             logger.error(f"Error during browser setup verification: {e}")
             # Don't fail the process, just log the warning
 
+    async def _generate_and_set_display_name(self):
+        """Generate a display name using LLM and update it via backend API"""
+        try:
+            logger.info("Generating display name for research session...")
+
+            display_name = await self._generate_display_name()
+            logger.info(f"Generated display name: {display_name}")
+
+            # Update the display name via backend API
+            await self._update_display_name(display_name)
+            logger.info("Display name updated successfully")
+
+        except Exception as e:
+            logger.error(f"Error generating or setting display name: {e}")
+            # Don't fail the process, just log the warning
+
+    async def _generate_display_name(self) -> str:
+        """Generate a concise display name using Anthropic Claude API directly"""
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+            prompt = f"""Create a concise, descriptive display name (max 50 characters) for a research session with these details:
+
+Research Question: {self.prompt}
+Target Website: {self.website_url}
+
+The display name should capture the essence of what's being researched and where. Use format like:
+- "Pricing Analysis - acme.com"  
+- "Feature Review - product-site.com"
+- "Company Info - startup.io"
+
+Return only the display name, nothing else."""
+
+            message = client.messages.create(
+                model="claude-3-5-haiku-20241022",  # Use faster, cheaper model for this simple task
+                max_tokens=100,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            display_name = message.content[0].text.strip()
+
+            # Ensure it's not too long
+            if len(display_name) > 50:
+                display_name = display_name[:47] + "..."
+
+            return display_name
+
+        except Exception as e:
+            logger.error(f"Error generating display name with Claude: {e}")
+            # Fallback to a simple format
+            domain = (
+                self.website_url.replace("http://", "")
+                .replace("https://", "")
+                .split("/")[0]
+            )
+            return f"Research - {domain}"
+
+    async def _update_display_name(self, display_name: str):
+        """Update the display name via backend API"""
+        try:
+            url = f"{self.backend_api_url}/research-sessions/{self.session_name}/displayname"
+
+            payload = {"displayName": display_name}
+
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: requests.put(url, json=payload, timeout=30)
+            )
+
+            if response.status_code != 200:
+                logger.error(
+                    f"Failed to update display name: {response.status_code} - {response.text}"
+                )
+            else:
+                logger.info("Display name updated via backend API")
+
+        except Exception as e:
+            logger.error(f"Error updating display name via API: {e}")
+
     async def _run_claude_code(self, prompt: str) -> tuple[str, float, list[str]]:
         """Run Claude Code using Python SDK with MCP browser automation"""
         try:
@@ -225,6 +308,7 @@ class ClaudeRunner:
 
                         # Stream content as it arrives
                         if hasattr(message, "content"):
+                            print(f"[DEBUG] message object: {message}")
                             for block in message.content:
                                 if hasattr(block, "text"):
                                     text = block.text
@@ -286,58 +370,22 @@ class ClaudeRunner:
             raise
 
     def _create_research_prompt(self) -> str:
-        """Create a comprehensive research prompt for Claude Code with MCP browser instructions"""
-        return f"""You are a research assistant with browser automation capabilities via Playwright MCP tools. 
+        """Create a focused research prompt for Claude Code with MCP browser instructions"""
+        return f"""You are a research assistant with browser automation capabilities. 
 
-RESEARCH OBJECTIVE: {self.prompt}
+RESEARCH QUESTION: {self.prompt}
 
 TARGET WEBSITE: {self.website_url}
 
-INSTRUCTIONS:
-Please use your Playwright MCP browser tools to thoroughly research and analyze the website: {self.website_url}
+Please use your browser tools to visit {self.website_url} and answer this question: "{self.prompt}"
 
-BROWSER AUTOMATION TASKS:
-1. Navigate to the website and take a snapshot to see what's there
-2. Extract and analyze all text content from the page
-3. Take a screenshot for visual reference
-4. Identify key navigation elements, links, and page structure
-5. Look for forms, interactive elements, or important functionality
-6. Extract metadata (title, description, etc.)
-7. If needed, interact with the page to access additional content or sections
+Use your browser automation tools to:
+1. Navigate to and explore the website
+2. Take snapshots and screenshots as needed
+3. Extract relevant information from the page
+4. Navigate to additional pages if necessary to find the answer
 
-RESEARCH ANALYSIS REQUIREMENTS:
-Based on your browser-based investigation, provide a comprehensive report with:
-
-1. **Website Overview**
-   - Website purpose and main functionality
-   - Target audience and primary use case
-   - Overall design and user experience assessment
-
-2. **Content Analysis** 
-   - Key information and main content themes
-   - Important sections and navigation structure
-   - Notable features or unique functionality
-
-3. **Research Objective Analysis**
-   - How well does this website address: "{self.prompt}"
-   - Specific findings directly relevant to the research question
-   - Key insights and actionable takeaways
-
-4. **Technical & UX Observations**
-   - Page performance and loading characteristics
-   - Visual design and layout assessment
-   - Any technical issues or accessibility concerns
-   - Mobile responsiveness if observable
-
-5. **Recommendations & Strategic Insights**
-   - Actionable recommendations based on findings
-   - Suggested follow-up research areas or questions
-   - Competitive analysis insights if applicable
-   - Overall assessment and conclusion
-
-IMPORTANT: Use your MCP browser tools extensively and agentically. Take screenshots, navigate through sections, and extract comprehensive information before providing your analysis. Be thorough and methodical in your approach.
-
-Remember: You have full browser automation capabilities through MCP - use them to their fullest extent to gather comprehensive data!"""
+Provide a clear, direct answer to the research question based on what you find on the website. Focus on answering the specific question rather than providing a comprehensive website analysis."""
 
     async def update_session_status(self, status_update: Dict[str, Any]):
         """Update the ResearchSession status via the backend API"""

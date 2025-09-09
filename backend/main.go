@@ -56,6 +56,7 @@ func main() {
 		api.POST("/research-sessions", createResearchSession)
 		api.DELETE("/research-sessions/:name", deleteResearchSession)
 		api.PUT("/research-sessions/:name/status", updateResearchSessionStatus)
+		api.PUT("/research-sessions/:name/displayname", updateResearchSessionDisplayName)
 		api.POST("/research-sessions/:name/stop", stopResearchSession)
 	}
 
@@ -121,6 +122,7 @@ type ResearchSession struct {
 type ResearchSessionSpec struct {
 	Prompt      string      `json:"prompt" binding:"required"`
 	WebsiteURL  string      `json:"websiteURL" binding:"required,url"`
+	DisplayName string      `json:"displayName"`
 	LLMSettings LLMSettings `json:"llmSettings"`
 	Timeout     int         `json:"timeout"`
 }
@@ -145,6 +147,7 @@ type ResearchSessionStatus struct {
 type CreateResearchSessionRequest struct {
 	Prompt      string       `json:"prompt" binding:"required"`
 	WebsiteURL  string       `json:"websiteURL" binding:"required,url"`
+	DisplayName string       `json:"displayName,omitempty"`
 	LLMSettings *LLMSettings `json:"llmSettings,omitempty"`
 	Timeout     *int         `json:"timeout,omitempty"`
 }
@@ -265,8 +268,9 @@ func createResearchSession(c *gin.Context) {
 			"namespace": namespace,
 		},
 		"spec": map[string]interface{}{
-			"prompt":     req.Prompt,
-			"websiteURL": req.WebsiteURL,
+			"prompt":      req.Prompt,
+			"websiteURL":  req.WebsiteURL,
+			"displayName": req.DisplayName,
 			"llmSettings": map[string]interface{}{
 				"model":       llmSettings.Model,
 				"temperature": llmSettings.Temperature,
@@ -358,6 +362,50 @@ func updateResearchSessionStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Research session status updated successfully"})
 }
 
+func updateResearchSessionDisplayName(c *gin.Context) {
+	name := c.Param("name")
+
+	var displayNameUpdate struct {
+		DisplayName string `json:"displayName" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&displayNameUpdate); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	gvr := getResearchSessionResource()
+
+	// Get current resource
+	item, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Research session not found"})
+			return
+		}
+		log.Printf("Failed to get research session %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get research session"})
+		return
+	}
+
+	// Update displayName in spec
+	if item.Object["spec"] == nil {
+		item.Object["spec"] = make(map[string]interface{})
+	}
+
+	spec := item.Object["spec"].(map[string]interface{})
+	spec["displayName"] = displayNameUpdate.DisplayName
+
+	// Update the resource
+	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(context.TODO(), item, v1.UpdateOptions{})
+	if err != nil {
+		log.Printf("Failed to update research session displayName %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update research session displayName"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Research session displayName updated successfully"})
+}
+
 func stopResearchSession(c *gin.Context) {
 	name := c.Param("name")
 	gvr := getResearchSessionResource()
@@ -439,6 +487,10 @@ func parseSpec(spec map[string]interface{}) ResearchSessionSpec {
 
 	if websiteURL, ok := spec["websiteURL"].(string); ok {
 		result.WebsiteURL = websiteURL
+	}
+
+	if displayName, ok := spec["displayName"].(string); ok {
+		result.DisplayName = displayName
 	}
 
 	if timeout, ok := spec["timeout"].(float64); ok {
