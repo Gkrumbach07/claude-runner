@@ -271,9 +271,19 @@ export default function HomePage() {
                       <TableCell className="font-medium min-w-[180px]">
                         <Link
                           href={`/session/${session.metadata.name}`}
-                          className="text-blue-600 hover:underline hover:text-blue-800 transition-colors"
+                          className="text-blue-600 hover:underline hover:text-blue-800 transition-colors block"
                         >
-                          {session.metadata.name}
+                          <div>
+                            <div className="font-medium">
+                              {session.spec.displayName ||
+                                session.metadata.name}
+                            </div>
+                            {session.spec.displayName && (
+                              <div className="text-xs text-gray-500 font-normal">
+                                {session.metadata.name}
+                              </div>
+                            )}
+                          </div>
                         </Link>
                       </TableCell>
                       <TableCell>

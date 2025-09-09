@@ -16,7 +16,6 @@ import remarkGfm from "remark-gfm";
 
 export type ToolMessageProps = {
   message: MessageObject;
-  timestamp?: string;
   className?: string;
 };
 
@@ -50,7 +49,7 @@ const truncateContent = (content: string, maxLength = 2000) => {
 };
 
 export const ToolMessage = React.forwardRef<HTMLDivElement, ToolMessageProps>(
-  ({ message, timestamp, className, ...props }, ref) => {
+  ({ message, className, ...props }, ref) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
     // Determine message type and state
@@ -79,9 +78,6 @@ export const ToolMessage = React.forwardRef<HTMLDivElement, ToolMessageProps>(
                   <Badge variant="outline" className="text-xs">
                     Claude AI
                   </Badge>
-                  {timestamp && (
-                    <span className="text-xs text-gray-500">{timestamp}</span>
-                  )}
                 </div>
 
                 {/* Content */}
@@ -144,11 +140,6 @@ export const ToolMessage = React.forwardRef<HTMLDivElement, ToolMessageProps>(
                     >
                       {isLoading ? "Calling" : "Called"} {toolName}
                     </Badge>
-                    {timestamp && (
-                      <span className="text-xs text-gray-500 ml-2">
-                        {timestamp}
-                      </span>
-                    )}
                   </div>
 
                   {/* Expand/Collapse Icon */}

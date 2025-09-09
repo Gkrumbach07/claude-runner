@@ -201,9 +201,10 @@ export default function SessionDetailPage() {
   const handleDelete = async () => {
     if (!session) return;
 
+    const displayName = session.spec.displayName || session.metadata.name;
     if (
       !confirm(
-        `Are you sure you want to delete research session "${sessionName}"? This action cannot be undone.`
+        `Are you sure you want to delete research session "${displayName}"? This action cannot be undone.`
       )
     ) {
       return;
@@ -335,8 +336,13 @@ export default function SessionDetailPage() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-2xl">
-                  {session.metadata.name}
+                  {session.spec.displayName || session.metadata.name}
                 </CardTitle>
+                {session.spec.displayName && (
+                  <div className="text-sm text-gray-500 mb-1">
+                    {session.metadata.name}
+                  </div>
+                )}
                 <CardDescription>
                   Created{" "}
                   {formatDistanceToNow(
@@ -521,7 +527,6 @@ export default function SessionDetailPage() {
                       <ToolMessage
                         key={`tool-${index}-${message.tool_use_id}`}
                         message={message}
-                        timestamp={`Message ${index + 1}`}
                       />
                     );
                   } else {
@@ -531,7 +536,6 @@ export default function SessionDetailPage() {
                         key={`text-${index}`}
                         role="bot"
                         content={message.content || ""}
-                        timestamp={`Message ${index + 1}`}
                         name="Claude AI"
                       />
                     );
@@ -551,7 +555,6 @@ export default function SessionDetailPage() {
                         ? "Creating research environment..."
                         : "Analyzing the website and generating insights..."
                     }
-                    timestamp="Analyzing..."
                     name="Claude AI"
                     isLoading={true}
                   />

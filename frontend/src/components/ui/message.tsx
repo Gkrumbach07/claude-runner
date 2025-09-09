@@ -10,7 +10,6 @@ export type MessageRole = "bot" | "user";
 export type MessageProps = {
   role: MessageRole;
   content: string;
-  timestamp?: string;
   isLoading?: boolean;
   avatar?: string;
   name?: string;
@@ -80,16 +79,7 @@ const LoadingDots = () => (
 
 export const Message = React.forwardRef<HTMLDivElement, MessageProps>(
   (
-    {
-      role,
-      content,
-      timestamp,
-      isLoading,
-      name,
-      className,
-      components,
-      ...props
-    },
+    { role, content, isLoading, name, className, components, ...props },
     ref
   ) => {
     const isBot = role === "bot";
@@ -119,16 +109,13 @@ export const Message = React.forwardRef<HTMLDivElement, MessageProps>(
           <div className="flex-1 min-w-0">
             <div className="bg-white rounded-lg border shadow-sm p-3">
               {/* Header */}
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center mb-2">
                 <Badge
                   variant="outline"
                   className={cn("text-xs", isLoading && "animate-pulse")}
                 >
                   {displayName}
                 </Badge>
-                {timestamp && (
-                  <span className="text-xs text-gray-500">{timestamp}</span>
-                )}
               </div>
 
               {/* Content */}

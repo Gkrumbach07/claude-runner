@@ -11,6 +11,7 @@ export type ResearchSessionSpec = {
 	websiteURL: string;
 	llmSettings: LLMSettings;
 	timeout: number;
+	displayName?: string;
 };
 
 export type MessageObject = {
