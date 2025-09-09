@@ -58,6 +58,9 @@ func main() {
 		api.PUT("/research-sessions/:name/status", updateResearchSessionStatus)
 		api.PUT("/research-sessions/:name/displayname", updateResearchSessionDisplayName)
 		api.POST("/research-sessions/:name/stop", stopResearchSession)
+		api.GET("/research-sessions/:name/artifacts", getResearchSessionArtifacts)
+		api.GET("/artifacts/:path", serveArtifact)
+		api.GET("/trace-viewer/:session/:trace", getTraceViewer)
 	}
 
 	// Health check endpoint
@@ -141,6 +144,15 @@ type MessageObject struct {
 	ToolUseIsError *bool  `json:"tool_use_is_error,omitempty"`
 }
 
+type Artifact struct {
+	Type      string `json:"type"`
+	Filename  string `json:"filename"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	ViewerUrl string `json:"viewerUrl"`
+	CreatedAt string `json:"createdAt"`
+}
+
 type ResearchSessionStatus struct {
 	Phase          string          `json:"phase,omitempty"`
 	Message        string          `json:"message,omitempty"`
@@ -150,6 +162,8 @@ type ResearchSessionStatus struct {
 	FinalOutput    string          `json:"finalOutput,omitempty"`
 	Cost           *float64        `json:"cost,omitempty"`
 	Messages       []MessageObject `json:"messages,omitempty"`
+	TraceViewerUrl *string         `json:"traceViewerUrl,omitempty"`
+	Artifacts      []Artifact      `json:"artifacts,omitempty"`
 }
 
 type CreateResearchSessionRequest struct {
@@ -551,6 +565,40 @@ func parseStatus(status map[string]interface{}) *ResearchSessionStatus {
 		result.Cost = &cost
 	}
 
+	if traceViewerUrl, ok := status["traceViewerUrl"].(string); ok {
+		result.TraceViewerUrl = &traceViewerUrl
+	}
+
+	if artifacts, ok := status["artifacts"].([]interface{}); ok {
+		result.Artifacts = make([]Artifact, len(artifacts))
+		for i, artifact := range artifacts {
+			if artifactMap, ok := artifact.(map[string]interface{}); ok {
+				parsedArtifact := Artifact{}
+
+				if artifactType, ok := artifactMap["type"].(string); ok {
+					parsedArtifact.Type = artifactType
+				}
+				if filename, ok := artifactMap["filename"].(string); ok {
+					parsedArtifact.Filename = filename
+				}
+				if path, ok := artifactMap["path"].(string); ok {
+					parsedArtifact.Path = path
+				}
+				if size, ok := artifactMap["size"].(float64); ok {
+					parsedArtifact.Size = int64(size)
+				}
+				if viewerUrl, ok := artifactMap["viewerUrl"].(string); ok {
+					parsedArtifact.ViewerUrl = viewerUrl
+				}
+				if createdAt, ok := artifactMap["createdAt"].(string); ok {
+					parsedArtifact.CreatedAt = createdAt
+				}
+
+				result.Artifacts[i] = parsedArtifact
+			}
+		}
+	}
+
 	if messages, ok := status["messages"].([]interface{}); ok {
 		result.Messages = make([]MessageObject, len(messages))
 		for i, msg := range messages {
@@ -583,4 +631,89 @@ func parseStatus(status map[string]interface{}) *ResearchSessionStatus {
 	}
 
 	return result
+}
+
+func getResearchSessionArtifacts(c *gin.Context) {
+	name := c.Param("name")
+	gvr := getResearchSessionResource()
+
+	item, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Research session not found"})
+			return
+		}
+		log.Printf("Failed to get research session %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get research session"})
+		return
+	}
+
+	// Extract artifacts from status
+	status, _, _ := unstructured.NestedMap(item.Object, "status")
+	artifacts := []Artifact{}
+
+	if artifactsData, ok := status["artifacts"].([]interface{}); ok {
+		artifacts = make([]Artifact, len(artifactsData))
+		for i, artifact := range artifactsData {
+			if artifactMap, ok := artifact.(map[string]interface{}); ok {
+				parsedArtifact := Artifact{}
+
+				if artifactType, ok := artifactMap["type"].(string); ok {
+					parsedArtifact.Type = artifactType
+				}
+				if filename, ok := artifactMap["filename"].(string); ok {
+					parsedArtifact.Filename = filename
+				}
+				if path, ok := artifactMap["path"].(string); ok {
+					parsedArtifact.Path = path
+				}
+				if size, ok := artifactMap["size"].(float64); ok {
+					parsedArtifact.Size = int64(size)
+				}
+				if viewerUrl, ok := artifactMap["viewerUrl"].(string); ok {
+					parsedArtifact.ViewerUrl = viewerUrl
+				}
+				if createdAt, ok := artifactMap["createdAt"].(string); ok {
+					parsedArtifact.CreatedAt = createdAt
+				}
+
+				artifacts[i] = parsedArtifact
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"artifacts": artifacts})
+}
+
+func serveArtifact(c *gin.Context) {
+	artifactPath := c.Param("path")
+	
+	// For security, validate the path to prevent directory traversal
+	if len(artifactPath) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid artifact path"})
+		return
+	}
+
+	// Proxy to the trace viewer service
+	traceViewerURL := os.Getenv("TRACE_VIEWER_URL")
+	if traceViewerURL == "" {
+		traceViewerURL = "http://trace-viewer-service:3000"
+	}
+
+	// Redirect to the trace viewer service
+	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/artifact/%s", traceViewerURL, artifactPath))
+}
+
+func getTraceViewer(c *gin.Context) {
+	sessionName := c.Param("session")
+	traceFile := c.Param("trace")
+
+	// Proxy to the trace viewer service
+	traceViewerURL := os.Getenv("TRACE_VIEWER_URL")
+	if traceViewerURL == "" {
+		traceViewerURL = "http://trace-viewer-service:3000"
+	}
+
+	// Redirect to the trace viewer service
+	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/trace/%s/%s", traceViewerURL, sessionName, traceFile))
 }

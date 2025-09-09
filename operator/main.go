@@ -185,6 +185,19 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 	temperature, _, _ := unstructured.NestedFloat64(llmSettings, "temperature")
 	maxTokens, _, _ := unstructured.NestedInt64(llmSettings, "maxTokens")
 
+	// Extract trace settings
+	traceSettings, _, _ := unstructured.NestedMap(spec, "traceSettings")
+	traceEnabled := true // default value
+	traceRetention := "168h" // default value
+	if traceSettings != nil {
+		if enabled, found, _ := unstructured.NestedBool(traceSettings, "enabled"); found {
+			traceEnabled = enabled
+		}
+		if retention, found, _ := unstructured.NestedString(traceSettings, "retention"); found {
+			traceRetention = retention
+		}
+	}
+
 	// Create the Job
 	job := &batchv1.Job{
 		ObjectMeta: v1.ObjectMeta{
@@ -235,6 +248,14 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								},
 							},
 						},
+						{
+							Name: "artifacts",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: "research-artifacts-pvc",
+								},
+							},
+						},
 					},
 
 					Containers: []corev1.Container{
@@ -250,9 +271,10 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								},
 							},
 
-							// 📦 Mount shared memory volume
+							// 📦 Mount shared memory volume and artifacts volume
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "dshm", MountPath: "/dev/shm"},
+								{Name: "artifacts", MountPath: "/artifacts"},
 							},
 
 							Env: []corev1.EnvVar{
@@ -265,6 +287,11 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								{Name: "LLM_MAX_TOKENS", Value: fmt.Sprintf("%d", maxTokens)},
 								{Name: "TIMEOUT", Value: fmt.Sprintf("%d", timeout)},
 								{Name: "BACKEND_API_URL", Value: os.Getenv("BACKEND_API_URL")},
+
+								// Trace settings
+								{Name: "ENABLE_TRACE", Value: fmt.Sprintf("%t", traceEnabled)},
+								{Name: "TRACE_RETENTION", Value: traceRetention},
+								{Name: "ARTIFACTS_DIR", Value: "/artifacts"},
 
 								// 🔑 Anthropic key from Secret
 								{

@@ -36,6 +36,8 @@ class ClaudeRunner:
         self.backend_api_url = os.getenv(
             "BACKEND_API_URL", "http://backend-service:8080/api"
         )
+        self.enable_trace = os.getenv("ENABLE_TRACE", "true").lower() in ("true", "1", "yes")
+        self.artifacts_dir = os.getenv("ARTIFACTS_DIR", "/artifacts")
 
         # Validate Anthropic API key for Claude Code
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -44,6 +46,8 @@ class ClaudeRunner:
 
         logger.info(f"Initialized ClaudeRunner for session: {self.session_name}")
         logger.info(f"Website URL: {self.website_url}")
+        logger.info(f"Trace recording enabled: {self.enable_trace}")
+        logger.info(f"Artifacts directory: {self.artifacts_dir}")
         logger.info("Using Claude Code CLI with Playwright MCP")
 
     async def run_research_session(self):
@@ -55,6 +59,9 @@ class ClaudeRunner:
 
             # Verify browser setup before starting
             await self._verify_browser_setup()
+
+            # Setup artifacts directory
+            await self._setup_artifacts_directory()
 
             # Generate and set display name
             await self._generate_and_set_display_name()
@@ -86,6 +93,9 @@ class ClaudeRunner:
 
             logger.info("Received comprehensive research analysis from Claude Code")
 
+            # Process and save artifacts (traces, screenshots, etc.)
+            artifacts = await self._process_artifacts()
+
             # Log the complete research results to console
             print("\n" + "=" * 80)
             print("🔬 RESEARCH RESULTS")
@@ -96,17 +106,30 @@ class ClaudeRunner:
             # Also log to structured logging
             logger.info(f"FINAL RESEARCH RESULTS:\n{result}")
 
+            # Generate trace viewer URL if artifacts exist
+            trace_viewer_url = None
+            if artifacts:
+                trace_artifacts = [a for a in artifacts if a["type"] == "trace"]
+                if trace_artifacts:
+                    # Use the first trace file for the viewer URL
+                    trace_viewer_url = f"/trace/{self.session_name}/{trace_artifacts[0]['filename']}"
+
             # Update the session with the final result
-            await self.update_session_status(
-                {
-                    "phase": "Completed",
-                    "message": "Research completed successfully using Claude Code + Playwright MCP",
-                    "completionTime": datetime.now(timezone.utc).isoformat(),
-                    "finalOutput": result,
-                    "cost": cost,
-                    "messages": all_messages,
-                }
-            )
+            status_update = {
+                "phase": "Completed",
+                "message": "Research completed successfully using Claude Code + Playwright MCP",
+                "completionTime": datetime.now(timezone.utc).isoformat(),
+                "finalOutput": result,
+                "cost": cost,
+                "messages": all_messages,
+            }
+            
+            if artifacts:
+                status_update["artifacts"] = artifacts
+            if trace_viewer_url:
+                status_update["traceViewerUrl"] = trace_viewer_url
+
+            await self.update_session_status(status_update)
 
             logger.info("Research session completed successfully")
 
@@ -191,6 +214,97 @@ class ClaudeRunner:
             logger.error(f"Error generating or setting display name: {e}")
             # Don't fail the process, just log the warning
 
+    async def _setup_artifacts_directory(self):
+        """Setup the session-specific artifacts directory"""
+        try:
+            import os
+            
+            # Create session-specific directory
+            session_artifacts_dir = os.path.join(self.artifacts_dir, self.session_name)
+            os.makedirs(session_artifacts_dir, exist_ok=True)
+            
+            logger.info(f"Created artifacts directory: {session_artifacts_dir}")
+            
+            # Set environment variable for MCP to use
+            os.environ["SESSION_ARTIFACTS_DIR"] = session_artifacts_dir
+            
+        except Exception as e:
+            logger.error(f"Error setting up artifacts directory: {e}")
+            # Don't fail the process, just log the warning
+
+    async def _process_artifacts(self) -> list:
+        """Process and catalog artifacts generated during the session"""
+        artifacts = []
+        try:
+            import os
+            import glob
+            from datetime import datetime
+            
+            session_artifacts_dir = os.path.join(self.artifacts_dir, self.session_name)
+            
+            if not os.path.exists(session_artifacts_dir):
+                logger.info("No artifacts directory found")
+                return artifacts
+                
+            # Look for trace files (typically .zip files)
+            trace_files = glob.glob(os.path.join(session_artifacts_dir, "*.zip"))
+            trace_files.extend(glob.glob(os.path.join(session_artifacts_dir, "*trace*")))
+            
+            for trace_file in trace_files:
+                if os.path.isfile(trace_file):
+                    filename = os.path.basename(trace_file)
+                    stats = os.stat(trace_file)
+                    artifacts.append({
+                        "type": "trace",
+                        "filename": filename,
+                        "path": trace_file,
+                        "size": stats.st_size,
+                        "viewerUrl": f"/trace/{self.session_name}/{filename}",
+                        "createdAt": datetime.fromtimestamp(stats.st_mtime).isoformat()
+                    })
+                    logger.info(f"Found trace artifact: {filename} ({stats.st_size} bytes)")
+            
+            # Look for screenshot files
+            screenshot_extensions = ["*.png", "*.jpg", "*.jpeg"]
+            for ext in screenshot_extensions:
+                screenshot_files = glob.glob(os.path.join(session_artifacts_dir, ext))
+                for screenshot_file in screenshot_files:
+                    if os.path.isfile(screenshot_file):
+                        filename = os.path.basename(screenshot_file)
+                        stats = os.stat(screenshot_file)
+                        artifacts.append({
+                            "type": "screenshot",
+                            "filename": filename,
+                            "path": screenshot_file,
+                            "size": stats.st_size,
+                            "viewerUrl": f"/artifact/{self.session_name}/{filename}",
+                            "createdAt": datetime.fromtimestamp(stats.st_mtime).isoformat()
+                        })
+                        logger.info(f"Found screenshot artifact: {filename} ({stats.st_size} bytes)")
+            
+            # Look for PDF files
+            pdf_files = glob.glob(os.path.join(session_artifacts_dir, "*.pdf"))
+            for pdf_file in pdf_files:
+                if os.path.isfile(pdf_file):
+                    filename = os.path.basename(pdf_file)
+                    stats = os.stat(pdf_file)
+                    artifacts.append({
+                        "type": "pdf",
+                        "filename": filename,
+                        "path": pdf_file,
+                        "size": stats.st_size,
+                        "viewerUrl": f"/artifact/{self.session_name}/{filename}",
+                        "createdAt": datetime.fromtimestamp(stats.st_mtime).isoformat()
+                    })
+                    logger.info(f"Found PDF artifact: {filename} ({stats.st_size} bytes)")
+            
+            logger.info(f"Processed {len(artifacts)} artifacts for session {self.session_name}")
+            return artifacts
+            
+        except Exception as e:
+            logger.error(f"Error processing artifacts: {e}")
+            return artifacts
+
     async def _generate_display_name(self) -> str:
         """Generate a concise display name using Anthropic Claude API directly"""
         try:
@@ -261,16 +375,25 @@ Return only the display name, nothing else."""
             logger.info("Initializing Claude Code Python SDK with MCP server...")
 
             # Configure MCP servers for OpenShift compatibility
+            playwright_args = [
+                "@playwright/mcp",
+                "--headless",
+                "--browser",
+                "chromium",
+                "--no-sandbox",
+            ]
+            
+            # Add trace recording if enabled
+            if self.enable_trace:
+                session_artifacts_dir = os.path.join(self.artifacts_dir, self.session_name)
+                trace_file = os.path.join(session_artifacts_dir, f"{self.session_name}-trace.zip")
+                playwright_args.extend(["--save-trace", trace_file])
+                logger.info(f"Trace recording enabled, saving to: {trace_file}")
+            
             mcp_servers = {
                 "playwright": {
                     "command": "npx",
-                    "args": [
-                        "@playwright/mcp",
-                        "--headless",
-                        "--browser",
-                        "chromium",
-                        "--no-sandbox",
-                    ],
+                    "args": playwright_args,
                 }
             }
 

@@ -6,12 +6,27 @@ export type LLMSettings = {
 	maxTokens: number;
 };
 
+export type TraceSettings = {
+	enabled: boolean;
+	retention: string;
+};
+
+export type Artifact = {
+	type: "trace" | "screenshot" | "pdf";
+	filename: string;
+	path: string;
+	size: number;
+	viewerUrl: string;
+	createdAt: string;
+};
+
 export type ResearchSessionSpec = {
 	prompt: string;
 	websiteURL: string;
 	llmSettings: LLMSettings;
 	timeout: number;
 	displayName?: string;
+	traceSettings?: TraceSettings;
 };
 
 export type MessageObject = {
@@ -31,6 +46,8 @@ export type ResearchSessionStatus = {
 	finalOutput?: string;
 	cost?: number;
 	messages?: MessageObject[];
+	traceViewerUrl?: string;
+	artifacts?: Artifact[];
 };
 
 export type ResearchSession = {
@@ -49,4 +66,5 @@ export type CreateResearchSessionRequest = {
 	websiteURL: string;
 	llmSettings?: Partial<LLMSettings>;
 	timeout?: number;
+	traceSettings?: Partial<TraceSettings>;
 };

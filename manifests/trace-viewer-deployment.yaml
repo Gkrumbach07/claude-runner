@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trace-viewer
+  namespace: claude-research
+  labels:
+    app: claude-research
+    component: trace-viewer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: claude-research
+      component: trace-viewer
+  template:
+    metadata:
+      labels:
+        app: claude-research
+        component: trace-viewer
+    spec:
+      containers:
+      - name: trace-viewer
+        image: quay.io/gkrumbach07/trace-viewer:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: PORT
+          value: "3000"
+        - name: ARTIFACTS_DIR
+          value: "/artifacts"
+        - name: ALLOWED_ORIGINS
+          value: "http://localhost:3000,https://your-frontend-domain.com"
+        volumeMounts:
+        - name: artifacts-volume
+          mountPath: /artifacts
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: artifacts-volume
+        persistentVolumeClaim:
+          claimName: research-artifacts-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trace-viewer-service
+  namespace: claude-research
+  labels:
+    app: claude-research
+    component: trace-viewer
+spec:
+  selector:
+    app: claude-research
+    component: trace-viewer
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  type: ClusterIP
