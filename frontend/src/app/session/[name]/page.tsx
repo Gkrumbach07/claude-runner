@@ -13,6 +13,11 @@ import {
   Brain,
   Square,
   Trash2,
+  Eye,
+  Download,
+  FileText,
+  Camera,
+  PlayCircle,
 } from "lucide-react";
 
 // Custom components
@@ -571,6 +576,140 @@ export default function SessionDetailPage() {
                       <p>No messages yet</p>
                     </div>
                   )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Artifacts and Trace Viewer */}
+        {session.status?.artifacts && session.status.artifacts.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <FileText className="w-5 h-5 mr-2" />
+                Research Artifacts
+              </CardTitle>
+              <CardDescription>
+                Generated traces, screenshots, and other artifacts from the research session
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {session.status.artifacts.map((artifact, index) => {
+                  const getArtifactIcon = (type: string) => {
+                    switch (type) {
+                      case "trace":
+                        return <PlayCircle className="w-5 h-5 text-blue-600" />;
+                      case "screenshot":
+                        return <Camera className="w-5 h-5 text-green-600" />;
+                      case "pdf":
+                        return <FileText className="w-5 h-5 text-red-600" />;
+                      default:
+                        return <FileText className="w-5 h-5 text-gray-600" />;
+                    }
+                  };
+
+                  const getArtifactTypeLabel = (type: string) => {
+                    switch (type) {
+                      case "trace":
+                        return "Browser Trace";
+                      case "screenshot":
+                        return "Screenshot";
+                      case "pdf":
+                        return "PDF Document";
+                      default:
+                        return "Artifact";
+                    }
+                  };
+
+                  const formatFileSize = (bytes: number) => {
+                    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                    if (bytes === 0) return '0 Bytes';
+                    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+                    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+                  };
+
+                  return (
+                    <div key={index} className="flex items-center justify-between p-4 border rounded-lg bg-gray-50">
+                      <div className="flex items-center space-x-3">
+                        {getArtifactIcon(artifact.type)}
+                        <div>
+                          <p className="font-medium text-sm">{artifact.filename}</p>
+                          <p className="text-xs text-gray-500">
+                            {getArtifactTypeLabel(artifact.type)} • {formatFileSize(artifact.size)} • {format(new Date(artifact.createdAt), "PPp")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {artifact.type === "trace" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(`${getApiUrl()}${artifact.viewerUrl}`, '_blank')}
+                          >
+                            <Eye className="w-4 h-4 mr-1" />
+                            View Trace
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(`${getApiUrl()}${artifact.viewerUrl}`, '_blank')}
+                          >
+                            <Eye className="w-4 h-4 mr-1" />
+                            View
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const link = document.createElement('a');
+                            link.href = `${getApiUrl()}${artifact.viewerUrl}`;
+                            link.download = artifact.filename;
+                            link.click();
+                          }}
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Interactive Trace Viewer */}
+        {session.status?.traceViewerUrl && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <PlayCircle className="w-5 h-5 mr-2" />
+                Interactive Trace Viewer
+              </CardTitle>
+              <CardDescription>
+                Replay and analyze the browser automation session step by step
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-gray-100 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <PlayCircle className="w-5 h-5 text-blue-600" />
+                    <span className="text-sm font-medium">Playwright Trace Viewer</span>
+                  </div>
+                  <Button
+                    onClick={() => window.open(`${getApiUrl()}${session.status?.traceViewerUrl}`, '_blank')}
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    Open Trace Viewer
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-600 mt-2">
+                  View detailed browser automation timeline, network requests, DOM snapshots, and debugging information.
+                </p>
               </div>
             </CardContent>
           </Card>

@@ -44,6 +44,18 @@ spec:
                 type: integer
                 default: 300
                 description: "Timeout in seconds for the research session"
+              traceSettings:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+                    description: "Enable trace recording for browser automation"
+                  retention:
+                    type: string
+                    default: "168h"
+                    description: "Trace retention duration (default: 7 days)"
+                description: "Playwright trace recording settings"
           status:
             type: object
             properties:
@@ -97,6 +109,35 @@ spec:
                       type: boolean
                       description: "Whether tool result is an error - populated for ToolResultBlock"
                 description: "Array of message objects during the research session"
+              traceViewerUrl:
+                type: string
+                description: "URL to access the trace viewer for this session"
+              artifacts:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: ["trace", "screenshot", "pdf"]
+                      description: "Type of artifact"
+                    filename:
+                      type: string
+                      description: "Original filename of the artifact"
+                    path:
+                      type: string
+                      description: "Storage path of the artifact"
+                    size:
+                      type: integer
+                      description: "Size of the artifact in bytes"
+                    viewerUrl:
+                      type: string
+                      description: "Direct URL to view the artifact"
+                    createdAt:
+                      type: string
+                      format: date-time
+                      description: "When the artifact was created"
+                description: "Array of artifacts generated during the research session"
     additionalPrinterColumns:
     - name: Phase
       type: string

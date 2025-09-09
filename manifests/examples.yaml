@@ -1,0 +1,36 @@
+# Example StaticSite resources
+
+---
+# Simple HTML site from Git
+apiVersion: hosting.example.com/v1
+kind: StaticSite
+metadata:
+  name: my-docs
+  namespace: default
+spec:
+  source:
+    type: git
+    git:
+      repository: "https://github.com/example/simple-site.git"
+      branch: "main"
+  build:
+    enabled: false
+  spa: false
+---
+# React app with build
+apiVersion: hosting.example.com/v1
+kind: StaticSite
+metadata:
+  name: react-app
+  namespace: default
+spec:
+  source:
+    type: git
+    git:
+      repository: "https://github.com/example/react-app.git"
+      branch: "main"
+  build:
+    enabled: true
+    command: "npm ci && npm run build"
+    outputDir: "build"
+  spa: true

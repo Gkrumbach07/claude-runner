@@ -1,0 +1,131 @@
+---
+# MinIO for static site storage
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-creds
+  namespace: default
+type: Opaque
+data:
+  # admin:password123 (base64 encoded)
+  MINIO_ROOT_USER: YWRtaW4=
+  MINIO_ROOT_PASSWORD: cGFzc3dvcmQxMjM=
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-storage
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: default
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: quay.io/minio/minio:latest
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - minio server /data --console-address :9001
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-creds
+              key: MINIO_ROOT_USER
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-creds
+              key: MINIO_ROOT_PASSWORD
+        ports:
+        - containerPort: 9000
+          name: api
+        - containerPort: 9001
+          name: console
+        volumeMounts:
+        - name: storage
+          mountPath: /data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: minio-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: default
+  labels:
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+  - name: api
+    port: 9000
+    targetPort: 9000
+  - name: console
+    port: 9001
+    targetPort: 9001
+  type: ClusterIP
+---
+# Setup job to create bucket and set anonymous download
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-setup
+  namespace: default
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mc
+        image: quay.io/minio/mc:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Waiting for MinIO to be ready..."
+          until mc alias set myminio http://minio.default.svc:9000 admin password123; do
+            echo "MinIO not ready, waiting..."
+            sleep 5
+          done
+          
+          echo "Creating sites bucket..."
+          mc mb myminio/sites --ignore-existing
+          
+          echo "Setting anonymous download policy for sites bucket..."
+          mc anonymous set download myminio/sites
+          
+          echo "MinIO setup complete!"

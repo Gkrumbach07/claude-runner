@@ -51,6 +51,9 @@ func main() {
 
 	// Start watching ResearchSession resources
 	go watchResearchSessions()
+	
+	// Start watching StaticSite resources
+	go watchStaticSites()
 
 	// Keep the operator running
 	select {}
@@ -185,6 +188,19 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 	temperature, _, _ := unstructured.NestedFloat64(llmSettings, "temperature")
 	maxTokens, _, _ := unstructured.NestedInt64(llmSettings, "maxTokens")
 
+	// Extract trace settings
+	traceSettings, _, _ := unstructured.NestedMap(spec, "traceSettings")
+	traceEnabled := true // default value
+	traceRetention := "168h" // default value
+	if traceSettings != nil {
+		if enabled, found, _ := unstructured.NestedBool(traceSettings, "enabled"); found {
+			traceEnabled = enabled
+		}
+		if retention, found, _ := unstructured.NestedString(traceSettings, "retention"); found {
+			traceRetention = retention
+		}
+	}
+
 	// Create the Job
 	job := &batchv1.Job{
 		ObjectMeta: v1.ObjectMeta{
@@ -235,6 +251,14 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								},
 							},
 						},
+						{
+							Name: "artifacts",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: "research-artifacts-pvc",
+								},
+							},
+						},
 					},
 
 					Containers: []corev1.Container{
@@ -250,9 +274,10 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								},
 							},
 
-							// 📦 Mount shared memory volume
+							// 📦 Mount shared memory volume and artifacts volume
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "dshm", MountPath: "/dev/shm"},
+								{Name: "artifacts", MountPath: "/artifacts"},
 							},
 
 							Env: []corev1.EnvVar{
@@ -265,6 +290,11 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								{Name: "LLM_MAX_TOKENS", Value: fmt.Sprintf("%d", maxTokens)},
 								{Name: "TIMEOUT", Value: fmt.Sprintf("%d", timeout)},
 								{Name: "BACKEND_API_URL", Value: os.Getenv("BACKEND_API_URL")},
+
+								// Trace settings
+								{Name: "ENABLE_TRACE", Value: fmt.Sprintf("%t", traceEnabled)},
+								{Name: "TRACE_RETENTION", Value: traceRetention},
+								{Name: "ARTIFACTS_DIR", Value: "/artifacts"},
 
 								// 🔑 Anthropic key from Secret
 								{
@@ -452,6 +482,282 @@ func updateResearchSessionStatus(name string, statusUpdate map[string]interface{
 			return nil // Don't treat this as an error - resource was deleted
 		}
 		return fmt.Errorf("failed to update ResearchSession status: %v", err)
+	}
+
+	return nil
+}
+
+func getStaticSiteResource() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "hosting.example.com",
+		Version:  "v1",
+		Resource: "staticsites",
+	}
+}
+
+func watchStaticSites() {
+	gvr := getStaticSiteResource()
+
+	for {
+		watcher, err := dynamicClient.Resource(gvr).Namespace(namespace).Watch(context.TODO(), v1.ListOptions{})
+		if err != nil {
+			log.Printf("Failed to create StaticSite watcher: %v", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		log.Println("Watching for StaticSite events...")
+
+		for event := range watcher.ResultChan() {
+			switch event.Type {
+			case watch.Added, watch.Modified:
+				obj := event.Object.(*unstructured.Unstructured)
+				time.Sleep(100 * time.Millisecond)
+
+				if err := handleStaticSiteEvent(obj); err != nil {
+					log.Printf("Error handling StaticSite event: %v", err)
+				}
+			case watch.Deleted:
+				obj := event.Object.(*unstructured.Unstructured)
+				siteName := obj.GetName()
+				log.Printf("StaticSite %s deleted, cleaning up MinIO...", siteName)
+				// TODO: Cleanup MinIO sites/<cr>/ folder
+			}
+		}
+
+		log.Println("StaticSite watch channel closed, restarting...")
+		watcher.Stop()
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func handleStaticSiteEvent(obj *unstructured.Unstructured) error {
+	name := obj.GetName()
+	gvr := getStaticSiteResource()
+	
+	currentObj, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Printf("StaticSite %s no longer exists, skipping", name)
+			return nil
+		}
+		return fmt.Errorf("failed to verify StaticSite %s exists: %v", name, err)
+	}
+
+	status, _, _ := unstructured.NestedMap(currentObj.Object, "status")
+	phase, _, _ := unstructured.NestedString(status, "phase")
+
+	log.Printf("Processing StaticSite %s with phase %s", name, phase)
+
+	if phase != "Pending" && phase != "" {
+		return nil
+	}
+
+	// Create build job
+	jobName := fmt.Sprintf("%s-build-%d", name, time.Now().Unix())
+	
+	_, err = k8sClient.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, v1.GetOptions{})
+	if err == nil {
+		log.Printf("Job %s already exists for StaticSite %s", jobName, name)
+		return nil
+	}
+
+	spec, _, _ := unstructured.NestedMap(currentObj.Object, "spec")
+	job, err := createStaticSiteBuildJob(name, jobName, spec)
+	if err != nil {
+		return fmt.Errorf("failed to create build job spec: %v", err)
+	}
+
+	// Update status to Building
+	updateStaticSiteStatus(name, map[string]interface{}{
+		"phase":   "Building",
+		"message": "Build job created and running",
+		"jobName": jobName,
+	})
+
+	_, err = k8sClient.BatchV1().Jobs(namespace).Create(context.TODO(), job, v1.CreateOptions{})
+	if err != nil {
+		log.Printf("Failed to create job %s: %v", jobName, err)
+		updateStaticSiteStatus(name, map[string]interface{}{
+			"phase":   "Failed",
+			"message": fmt.Sprintf("Failed to create build job: %v", err),
+		})
+		return fmt.Errorf("failed to create job: %v", err)
+	}
+
+	log.Printf("Created build job %s for StaticSite %s", jobName, name)
+	go monitorStaticSiteJob(jobName, name)
+
+	return nil
+}
+
+func createStaticSiteBuildJob(siteName, jobName string, spec map[string]interface{}) (*batchv1.Job, error) {
+	source, _, _ := unstructured.NestedMap(spec, "source")
+	sourceType, _, _ := unstructured.NestedString(source, "type")
+	
+	build, _, _ := unstructured.NestedMap(spec, "build")
+	buildEnabled, _, _ := unstructured.NestedBool(build, "enabled")
+	buildCommand, _, _ := unstructured.NestedString(build, "command")
+	if buildCommand == "" {
+		buildCommand = "npm run build"
+	}
+	outputDir, _, _ := unstructured.NestedString(build, "outputDir")
+	if outputDir == "" {
+		outputDir = "dist"
+	}
+
+	env := []corev1.EnvVar{
+		{Name: "SITE_NAME", Value: siteName},
+		{Name: "SOURCE_TYPE", Value: sourceType},
+		{Name: "BUILD_ENABLED", Value: strconv.FormatBool(buildEnabled)},
+		{Name: "BUILD_COMMAND", Value: buildCommand},
+		{Name: "BUILD_OUTPUT_DIR", Value: outputDir},
+		{Name: "MINIO_ENDPOINT", Value: "http://minio.default.svc:9000"},
+		{Name: "MINIO_ACCESS_KEY", Value: "admin"},
+		{Name: "MINIO_SECRET_KEY", Value: "password123"},
+	}
+
+	// Add source-specific env vars
+	switch sourceType {
+	case "git":
+		gitConfig, _, _ := unstructured.NestedMap(source, "git")
+		if repository, found, _ := unstructured.NestedString(gitConfig, "repository"); found {
+			env = append(env, corev1.EnvVar{Name: "GIT_REPOSITORY", Value: repository})
+		}
+		if branch, found, _ := unstructured.NestedString(gitConfig, "branch"); found {
+			env = append(env, corev1.EnvVar{Name: "GIT_BRANCH", Value: branch})
+		}
+		if path, found, _ := unstructured.NestedString(gitConfig, "path"); found {
+			env = append(env, corev1.EnvVar{Name: "GIT_PATH", Value: path})
+		}
+	case "docker":
+		dockerConfig, _, _ := unstructured.NestedMap(source, "docker")
+		if image, found, _ := unstructured.NestedString(dockerConfig, "image"); found {
+			env = append(env, corev1.EnvVar{Name: "DOCKER_IMAGE", Value: image})
+		}
+		if path, found, _ := unstructured.NestedString(dockerConfig, "path"); found {
+			env = append(env, corev1.EnvVar{Name: "DOCKER_PATH", Value: path})
+		}
+	case "url":
+		urlConfig, _, _ := unstructured.NestedMap(source, "url")
+		if archive, found, _ := unstructured.NestedString(urlConfig, "archive"); found {
+			env = append(env, corev1.EnvVar{Name: "URL_ARCHIVE", Value: archive})
+		}
+	}
+
+	job := &batchv1.Job{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      jobName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"static-site": siteName,
+				"app":         "static-site-builder",
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:          int32Ptr(3),
+			ActiveDeadlineSeconds: int64Ptr(1800),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						"static-site": siteName,
+						"app":         "static-site-builder",
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:  "builder",
+							Image: "quay.io/example/static-site-builder:latest",
+							Env:   env,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("2000m"),
+									corev1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return job, nil
+}
+
+func monitorStaticSiteJob(jobName, siteName string) {
+	for {
+		time.Sleep(10 * time.Second)
+
+		gvr := getStaticSiteResource()
+		if _, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), siteName, v1.GetOptions{}); err != nil {
+			if errors.IsNotFound(err) {
+				log.Printf("StaticSite %s no longer exists, stopping job monitoring", siteName)
+				return
+			}
+		}
+
+		job, err := k8sClient.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return
+			}
+			continue
+		}
+
+		if job.Status.Succeeded > 0 {
+			log.Printf("StaticSite job %s completed successfully", jobName)
+
+			siteURL := fmt.Sprintf("https://%s.sites.apps.example.com/", siteName)
+			updateStaticSiteStatus(siteName, map[string]interface{}{
+				"phase":       "Ready",
+				"message":     "Site built and deployed successfully",
+				"url":         siteURL,
+				"publishedAt": time.Now().Format(time.RFC3339),
+			})
+			return
+		}
+
+		if job.Status.Failed >= *job.Spec.BackoffLimit {
+			log.Printf("StaticSite job %s failed", jobName)
+			updateStaticSiteStatus(siteName, map[string]interface{}{
+				"phase":   "Failed",
+				"message": "Build job failed",
+			})
+			return
+		}
+	}
+}
+
+func updateStaticSiteStatus(name string, statusUpdate map[string]interface{}) error {
+	gvr := getStaticSiteResource()
+
+	obj, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get StaticSite %s: %v", name, err)
+	}
+
+	if obj.Object["status"] == nil {
+		obj.Object["status"] = make(map[string]interface{})
+	}
+
+	status := obj.Object["status"].(map[string]interface{})
+	for key, value := range statusUpdate {
+		status[key] = value
+	}
+
+	_, err = dynamicClient.Resource(gvr).Namespace(namespace).UpdateStatus(context.TODO(), obj, v1.UpdateOptions{})
+	if err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to update StaticSite status: %v", err)
 	}
 
 	return nil

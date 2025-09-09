@@ -3,9 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -24,6 +29,8 @@ var (
 	k8sClient     *kubernetes.Clientset
 	dynamicClient dynamic.Interface
 	namespace     string
+	minioEndpoint string
+	minioPublic   bool
 )
 
 func main() {
@@ -37,6 +44,15 @@ func main() {
 	if namespace == "" {
 		namespace = "default"
 	}
+
+	// Get MinIO endpoint for static site proxy
+	minioEndpoint = os.Getenv("MINIO_ENDPOINT")
+	if minioEndpoint == "" {
+		minioEndpoint = "http://minio.minio.svc:9000"
+	}
+
+	// Check if MinIO bucket is public (for proxy vs presign mode)
+	minioPublic = os.Getenv("MINIO_PUBLIC_BUCKET") == "true"
 
 	// Setup Gin router
 	r := gin.Default()
@@ -58,8 +74,18 @@ func main() {
 		api.PUT("/research-sessions/:name/status", updateResearchSessionStatus)
 		api.PUT("/research-sessions/:name/displayname", updateResearchSessionDisplayName)
 		api.POST("/research-sessions/:name/stop", stopResearchSession)
+		api.GET("/research-sessions/:name/artifacts", getResearchSessionArtifacts)
+		api.GET("/artifacts/:path", serveArtifact)
+		api.GET("/trace-viewer/:session/:trace", getTraceViewer)
 	}
 
+	// Static site health checks
+	api.GET("/sites/:cr/health", checkSiteHealth)
+	
+	// Static site proxy routes (must be after API routes)
+	r.GET("/publish/:cr/*path", proxyToStaticSite)  // Path-based routing
+	r.GET("/*path", proxyToStaticSite)              // Wildcard subdomain routing (catch-all)
+	
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
@@ -141,6 +167,15 @@ type MessageObject struct {
 	ToolUseIsError *bool  `json:"tool_use_is_error,omitempty"`
 }
 
+type Artifact struct {
+	Type      string `json:"type"`
+	Filename  string `json:"filename"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	ViewerUrl string `json:"viewerUrl"`
+	CreatedAt string `json:"createdAt"`
+}
+
 type ResearchSessionStatus struct {
 	Phase          string          `json:"phase,omitempty"`
 	Message        string          `json:"message,omitempty"`
@@ -150,6 +185,8 @@ type ResearchSessionStatus struct {
 	FinalOutput    string          `json:"finalOutput,omitempty"`
 	Cost           *float64        `json:"cost,omitempty"`
 	Messages       []MessageObject `json:"messages,omitempty"`
+	TraceViewerUrl *string         `json:"traceViewerUrl,omitempty"`
+	Artifacts      []Artifact      `json:"artifacts,omitempty"`
 }
 
 type CreateResearchSessionRequest struct {
@@ -551,6 +588,40 @@ func parseStatus(status map[string]interface{}) *ResearchSessionStatus {
 		result.Cost = &cost
 	}
 
+	if traceViewerUrl, ok := status["traceViewerUrl"].(string); ok {
+		result.TraceViewerUrl = &traceViewerUrl
+	}
+
+	if artifacts, ok := status["artifacts"].([]interface{}); ok {
+		result.Artifacts = make([]Artifact, len(artifacts))
+		for i, artifact := range artifacts {
+			if artifactMap, ok := artifact.(map[string]interface{}); ok {
+				parsedArtifact := Artifact{}
+
+				if artifactType, ok := artifactMap["type"].(string); ok {
+					parsedArtifact.Type = artifactType
+				}
+				if filename, ok := artifactMap["filename"].(string); ok {
+					parsedArtifact.Filename = filename
+				}
+				if path, ok := artifactMap["path"].(string); ok {
+					parsedArtifact.Path = path
+				}
+				if size, ok := artifactMap["size"].(float64); ok {
+					parsedArtifact.Size = int64(size)
+				}
+				if viewerUrl, ok := artifactMap["viewerUrl"].(string); ok {
+					parsedArtifact.ViewerUrl = viewerUrl
+				}
+				if createdAt, ok := artifactMap["createdAt"].(string); ok {
+					parsedArtifact.CreatedAt = createdAt
+				}
+
+				result.Artifacts[i] = parsedArtifact
+			}
+		}
+	}
+
 	if messages, ok := status["messages"].([]interface{}); ok {
 		result.Messages = make([]MessageObject, len(messages))
 		for i, msg := range messages {
@@ -583,4 +654,355 @@ func parseStatus(status map[string]interface{}) *ResearchSessionStatus {
 	}
 
 	return result
+}
+
+func getResearchSessionArtifacts(c *gin.Context) {
+	name := c.Param("name")
+	gvr := getResearchSessionResource()
+
+	item, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Research session not found"})
+			return
+		}
+		log.Printf("Failed to get research session %s: %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get research session"})
+		return
+	}
+
+	// Extract artifacts from status
+	status, _, _ := unstructured.NestedMap(item.Object, "status")
+	artifacts := []Artifact{}
+
+	if artifactsData, ok := status["artifacts"].([]interface{}); ok {
+		artifacts = make([]Artifact, len(artifactsData))
+		for i, artifact := range artifactsData {
+			if artifactMap, ok := artifact.(map[string]interface{}); ok {
+				parsedArtifact := Artifact{}
+
+				if artifactType, ok := artifactMap["type"].(string); ok {
+					parsedArtifact.Type = artifactType
+				}
+				if filename, ok := artifactMap["filename"].(string); ok {
+					parsedArtifact.Filename = filename
+				}
+				if path, ok := artifactMap["path"].(string); ok {
+					parsedArtifact.Path = path
+				}
+				if size, ok := artifactMap["size"].(float64); ok {
+					parsedArtifact.Size = int64(size)
+				}
+				if viewerUrl, ok := artifactMap["viewerUrl"].(string); ok {
+					parsedArtifact.ViewerUrl = viewerUrl
+				}
+				if createdAt, ok := artifactMap["createdAt"].(string); ok {
+					parsedArtifact.CreatedAt = createdAt
+				}
+
+				artifacts[i] = parsedArtifact
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"artifacts": artifacts})
+}
+
+func serveArtifact(c *gin.Context) {
+	artifactPath := c.Param("path")
+	
+	// For security, validate the path to prevent directory traversal
+	if len(artifactPath) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid artifact path"})
+		return
+	}
+
+	// Proxy to the trace viewer service
+	traceViewerURL := os.Getenv("TRACE_VIEWER_URL")
+	if traceViewerURL == "" {
+		traceViewerURL = "http://trace-viewer-service:3000"
+	}
+
+	// Redirect to the trace viewer service
+	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/artifact/%s", traceViewerURL, artifactPath))
+}
+
+func getTraceViewer(c *gin.Context) {
+	sessionName := c.Param("session")
+	traceFile := c.Param("trace")
+
+	// Proxy to the trace viewer service
+	traceViewerURL := os.Getenv("TRACE_VIEWER_URL")
+	if traceViewerURL == "" {
+		traceViewerURL = "http://trace-viewer-service:3000"
+	}
+
+	// Redirect to the trace viewer service
+	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/trace/%s/%s", traceViewerURL, sessionName, traceFile))
+}
+
+// Asset hash regex for cache headers
+var assetHashRegex = regexp.MustCompile(`\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$`)
+var hashedAssetRegex = regexp.MustCompile(`\.[a-f0-9]{8,}\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$`)
+
+func proxyToStaticSite(c *gin.Context) {
+	startTime := time.Now()
+	
+	// Extract site name from URL
+	var siteName, filePath string
+	
+	if strings.HasPrefix(c.Request.URL.Path, "/publish/") {
+		// Path-based routing: /publish/<cr>/path
+		parts := strings.Split(strings.TrimPrefix(c.Request.URL.Path, "/publish/"), "/")
+		if len(parts) < 1 || parts[0] == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Missing site name", 
+				"message": "Usage: /publish/<site-name>/path",
+			})
+			return
+		}
+		siteName = parts[0]
+		if len(parts) > 1 {
+			filePath = strings.Join(parts[1:], "/")
+		}
+	} else {
+		// Check if this is subdomain routing
+		host := c.Request.Host
+		if strings.Contains(host, ".sites.") {
+			// Wildcard subdomain: <cr>.sites.apps.domain
+			parts := strings.Split(host, ".")
+			if len(parts) >= 3 && parts[1] == "sites" {
+				siteName = parts[0]
+				filePath = strings.TrimPrefix(c.Request.URL.Path, "/")
+			}
+		} else {
+			// Direct path routing: /<cr>/path (fallback)
+			parts := strings.Split(strings.TrimPrefix(c.Request.URL.Path, "/"), "/")
+			if len(parts) >= 1 && parts[0] != "" {
+				siteName = parts[0]
+				if len(parts) > 1 {
+					filePath = strings.Join(parts[1:], "/")
+				}
+			}
+		}
+	}
+	
+	// If no site name found, this might be main UI request
+	if siteName == "" {
+		// Let it fall through to serve Next.js frontend
+		c.Next()
+		return
+	}
+	
+	// If no file path specified, default to index.html
+	if filePath == "" {
+		filePath = "index.html"
+	}
+	
+	// Clean the file path
+	filePath = filepath.Clean(filePath)
+	if strings.HasPrefix(filePath, "../") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid path",
+			"message": "Path traversal not allowed",
+		})
+		return
+	}
+	
+	// Construct MinIO URL
+	minioURL := fmt.Sprintf("%s/sites/%s/%s", minioEndpoint, siteName, filePath)
+	
+	// Create request to MinIO
+	req, err := http.NewRequest("GET", minioURL, nil)
+	if err != nil {
+		log.Printf("Error creating MinIO request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Internal server error",
+		})
+		return
+	}
+	
+	// Forward relevant headers
+	req.Header.Set("User-Agent", c.GetHeader("User-Agent"))
+	req.Header.Set("Accept", c.GetHeader("Accept"))
+	req.Header.Set("Accept-Encoding", c.GetHeader("Accept-Encoding"))
+	
+	// Make request to MinIO
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error proxying to MinIO: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "Unable to fetch site content",
+		})
+		return
+	}
+	defer resp.Body.Close()
+	
+	// Handle 404 - try SPA fallback
+	if resp.StatusCode == http.StatusNotFound {
+		// Try to serve index.html for SPA routing
+		if filePath != "index.html" {
+			indexURL := fmt.Sprintf("%s/sites/%s/index.html", minioEndpoint, siteName)
+			indexReq, err := http.NewRequest("GET", indexURL, nil)
+			if err == nil {
+				indexResp, err := client.Do(indexReq)
+				if err == nil && indexResp.StatusCode == http.StatusOK {
+					defer indexResp.Body.Close()
+					
+					// Set appropriate headers for SPA
+					c.Header("Content-Type", "text/html; charset=utf-8")
+					c.Header("Cache-Control", "no-store")
+					
+					// Copy response
+					c.Status(http.StatusOK)
+					io.Copy(c.Writer, indexResp.Body)
+					
+					// Log the request
+					duration := time.Since(startTime)
+					log.Printf("PROXY %s %s %d %v (SPA fallback)", 
+						c.Request.Method, c.Request.URL.Path, http.StatusOK, duration)
+					return
+				}
+			}
+		}
+		
+		// No SPA fallback available
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Site not found",
+			"site": siteName,
+			"message": "The requested site does not exist or has no content",
+		})
+		
+		duration := time.Since(startTime)
+		log.Printf("PROXY %s %s %d %v", 
+			c.Request.Method, c.Request.URL.Path, http.StatusNotFound, duration)
+		return
+	}
+	
+	// Handle other errors
+	if resp.StatusCode >= 400 {
+		c.JSON(resp.StatusCode, gin.H{
+			"error": "Error fetching content",
+			"status": resp.StatusCode,
+		})
+		
+		duration := time.Since(startTime)
+		log.Printf("PROXY %s %s %d %v", 
+			c.Request.Method, c.Request.URL.Path, resp.StatusCode, duration)
+		return
+	}
+	
+	// Set appropriate caching headers
+	setCacheHeaders(c, filePath)
+	
+	// Copy headers from MinIO response (excluding some)
+	for key, values := range resp.Header {
+		switch strings.ToLower(key) {
+		case "content-length", "content-type", "last-modified", "etag":
+			for _, value := range values {
+				c.Header(key, value)
+			}
+		case "x-amz-request-id", "x-amz-id-2", "x-amz-storage-class", "x-amz-server-side-encryption":
+			// Skip MinIO-specific headers
+		default:
+			// Copy other headers
+			for _, value := range values {
+				c.Header(key, value)
+			}
+		}
+	}
+	
+	// Security headers
+	c.Header("X-Frame-Options", "SAMEORIGIN")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("X-XSS-Protection", "1; mode=block")
+	
+	// Stream the response body
+	c.Status(resp.StatusCode)
+	_, err = io.Copy(c.Writer, resp.Body)
+	if err != nil {
+		log.Printf("Error streaming response: %v", err)
+	}
+	
+	// Log the request
+	duration := time.Since(startTime)
+	log.Printf("PROXY %s %s %d %v site=%s", 
+		c.Request.Method, c.Request.URL.Path, resp.StatusCode, duration, siteName)
+}
+
+func setCacheHeaders(c *gin.Context, filePath string) {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	filename := filepath.Base(filePath)
+	
+	// HTML files: no caching
+	if ext == ".html" || filename == "index.html" {
+		c.Header("Cache-Control", "no-store")
+		return
+	}
+	
+	// Assets with content hashes: long-term caching
+	if hashedAssetRegex.MatchString(filename) {
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	
+	// Regular assets: moderate caching
+	if assetHashRegex.MatchString(filename) {
+		c.Header("Cache-Control", "public, max-age=3600")
+		return
+	}
+	
+	// Default: short caching
+	c.Header("Cache-Control", "public, max-age=300")
+}
+
+func checkSiteHealth(c *gin.Context) {
+	siteName := c.Param("cr")
+	
+	if siteName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing site name",
+		})
+		return
+	}
+	
+	// Check if index.html exists for this site
+	indexURL := fmt.Sprintf("%s/sites/%s/index.html", minioEndpoint, siteName)
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Head(indexURL)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"site": siteName,
+			"status": "unhealthy",
+			"error": "Unable to connect to storage",
+		})
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode == http.StatusOK {
+		c.JSON(http.StatusOK, gin.H{
+			"site": siteName,
+			"status": "healthy",
+			"index_exists": true,
+			"last_modified": resp.Header.Get("Last-Modified"),
+			"content_length": resp.Header.Get("Content-Length"),
+		})
+	} else if resp.StatusCode == http.StatusNotFound {
+		c.JSON(http.StatusNotFound, gin.H{
+			"site": siteName,
+			"status": "not_found",
+			"index_exists": false,
+			"message": "Site has not been published or index.html is missing",
+		})
+	} else {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"site": siteName,
+			"status": "unhealthy",
+			"http_status": resp.StatusCode,
+			"error": "Unexpected response from storage",
+		})
+	}
 }
