@@ -57,11 +57,11 @@ kubectl apply -f manifests/crd.yaml
 echo "6️⃣ Setting up RBAC..."
 kubectl apply -f manifests/rbac.yaml
 
-echo "7️⃣ Deploying NGINX proxy..."
-kubectl apply -f manifests/nginx-proxy.yaml
+echo "7️⃣ Deploying backend proxy..."
+kubectl apply -f manifests/backend.yaml
 
-echo "8️⃣ Waiting for NGINX proxy to be ready..."
-wait_for_deployment static-hosting nginx-proxy
+echo "8️⃣ Waiting for backend to be ready..."
+wait_for_deployment static-hosting backend
 
 echo "9️⃣ Deploying operator..."
 kubectl apply -f manifests/operator.yaml
@@ -78,8 +78,8 @@ echo ""
 echo "📖 Platform Overview:"
 echo "  • MinIO storage deployed in 'minio' namespace"
 echo "  • Static hosting operator deployed in 'static-hosting' namespace"
-echo "  • NGINX proxy handling subdomain and path-based routing"
-echo "  • Wildcard route configured: *.sites.$DOMAIN"
+echo "  • Backend proxy handling transparent reverse proxy to MinIO"
+echo "  • Route configured: sites.$DOMAIN"
 echo ""
 echo "🎯 Next Steps:"
 echo "1. Create a StaticSite resource:"
@@ -92,12 +92,15 @@ echo "3. View site logs:"
 echo "   kubectl logs -l app=static-site-builder -n static-hosting"
 echo ""
 echo "4. Access your sites:"
-echo "   https://<site-name>.sites.$DOMAIN"
+echo "   https://sites.$DOMAIN/<site-name>/"
 echo "   https://sites.$DOMAIN/publish/<site-name>/"
 echo ""
 echo "🔍 Monitoring:"
 echo "  kubectl get pods -n minio"
 echo "  kubectl get pods -n static-hosting"
 echo "  kubectl get staticsites -n static-hosting -w"
+echo ""
+echo "🩺 Health Checks:"
+echo "  curl https://sites.$DOMAIN/api/sites/<site-name>/health"
 echo ""
 echo "🎉 Happy hosting!"

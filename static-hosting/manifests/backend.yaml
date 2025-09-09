@@ -1,0 +1,79 @@
+---
+# Backend Deployment for Static Site Hosting
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: static-hosting
+  labels:
+    app: static-hosting
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: static-hosting
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: static-hosting
+        component: backend
+    spec:
+      containers:
+      - name: backend
+        image: quay.io/example/static-hosting-backend:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: NAMESPACE
+          value: "static-hosting"
+        - name: MINIO_ENDPOINT
+          value: "http://minio.minio.svc:9000"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: static-hosting
+  labels:
+    app: static-hosting
+    component: backend
+spec:
+  selector:
+    app: static-hosting
+    component: backend
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP

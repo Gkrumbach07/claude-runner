@@ -164,8 +164,11 @@ spec:
           echo "Creating sites bucket..."
           mc mb myminio/sites --ignore-existing
           
-          echo "Setting public read policy for sites bucket..."
-          mc anonymous set public myminio/sites
+          echo "Setting anonymous GET policy for sites bucket..."
+          mc anonymous set download myminio/sites
+          
+          echo "Verifying bucket policy..."
+          mc anonymous get myminio/sites
           
           echo "MinIO setup complete!"
         env:

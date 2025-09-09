@@ -6,12 +6,14 @@ A complete static site hosting platform for OpenShift that provides automated bu
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   OpenShift     │    │     NGINX       │    │     MinIO       │
-│    Routes       │    │     Proxy       │    │    Storage      │
+│   OpenShift     │    │    Backend      │    │     MinIO       │
+│     Route       │    │  Proxy Server   │    │    Storage      │
 │                 │    │                 │    │                 │
-│ *.sites.apps... │───▶│ - Subdomain     │───▶│ /sites/<cr>/    │
-│ sites.apps...   │    │ - Path routing  │    │ - index.html    │
+│ sites.apps...   │───▶│ - Transparent   │───▶│ /sites/<cr>/    │
+│                 │    │ - Path routing  │    │ - index.html    │
 │                 │    │ - SPA fallback  │    │ - assets/       │
+│                 │    │ - Cache headers │    │                 │
+│                 │    │ - Health checks │    │                 │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 ▲
                                 │
@@ -49,9 +51,9 @@ A complete static site hosting platform for OpenShift that provides automated bu
 - **Output directory mapping**: Flexible build output handling
 
 ### 🌐 **Flexible Routing**
-- **Subdomain routing**: `<site>.sites.apps.example.com`
+- **Direct routing**: `sites.apps.example.com/<site>/`
 - **Path-based routing**: `sites.apps.example.com/publish/<site>/`
-- **Custom domains**: Optional custom domain support
+- **Transparent proxy**: Backend streams files directly from MinIO
 - **SPA fallback**: Automatic `index.html` serving for SPAs
 
 ### ☁️ **Cloud-Native Storage**
@@ -119,7 +121,7 @@ kubectl get staticsite my-docs -n static-hosting -o jsonpath='{.status.url}'
 
 ### 4. Access Your Site
 
-- **Subdomain**: `https://my-docs.sites.apps.example.com`
+- **Direct**: `https://sites.apps.example.com/my-docs/`
 - **Path-based**: `https://sites.apps.example.com/publish/my-docs/`
 
 ## Configuration Examples

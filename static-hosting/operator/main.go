@@ -459,7 +459,8 @@ func generateSiteURL(siteName string) string {
 	cleanName := strings.ToLower(siteName)
 	cleanName = strings.ReplaceAll(cleanName, "_", "-")
 	
-	return fmt.Sprintf("https://%s.%s", cleanName, baseDomain)
+	// Use path-based routing through backend
+	return fmt.Sprintf("https://%s/%s/", baseDomain, cleanName)
 }
 
 func cleanupSiteStorage(siteName string) error {
