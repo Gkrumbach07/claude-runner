@@ -18,6 +18,11 @@ import {
 // PatternFly imports
 import { Truncate } from "@patternfly/react-core";
 
+// Markdown rendering
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -465,12 +470,117 @@ export default function SessionDetailPage() {
                               Message {index + 1}
                             </span>
                           </div>
-                          <div className="text-sm text-gray-800 prose prose-sm max-w-none">
-                            <Truncate
-                              content={message}
-                              tooltipPosition="top"
-                              position="end"
-                            />
+                          <div className="text-sm text-gray-800">
+                            {message.length > 500 ? (
+                              <div>
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    code: ({
+                                      inline,
+                                      className,
+                                      children,
+                                      ...props
+                                    }: any) => {
+                                      return inline ? (
+                                        <code
+                                          className="bg-gray-100 px-1 py-0.5 rounded text-xs"
+                                          {...props}
+                                        >
+                                          {children}
+                                        </code>
+                                      ) : (
+                                        <pre className="bg-gray-800 text-gray-100 p-2 rounded text-xs overflow-x-auto">
+                                          <code
+                                            className={className}
+                                            {...props}
+                                          >
+                                            {children}
+                                          </code>
+                                        </pre>
+                                      );
+                                    },
+                                    p: ({ children }: any) => (
+                                      <p className="text-gray-600 leading-relaxed mb-2 text-sm">
+                                        {children}
+                                      </p>
+                                    ),
+                                    h1: ({ children }: any) => (
+                                      <h1 className="text-lg font-bold text-gray-800 mb-2">
+                                        {children}
+                                      </h1>
+                                    ),
+                                    h2: ({ children }: any) => (
+                                      <h2 className="text-md font-semibold text-gray-800 mb-2">
+                                        {children}
+                                      </h2>
+                                    ),
+                                    h3: ({ children }: any) => (
+                                      <h3 className="text-sm font-medium text-gray-800 mb-1">
+                                        {children}
+                                      </h3>
+                                    ),
+                                  }}
+                                >
+                                  {message.slice(0, 500)}
+                                </ReactMarkdown>
+                                <Truncate
+                                  content={message}
+                                  tooltipPosition="top"
+                                  position="end"
+                                  className="text-blue-600 cursor-pointer text-xs"
+                                />
+                              </div>
+                            ) : (
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  code: ({
+                                    inline,
+                                    className,
+                                    children,
+                                    ...props
+                                  }: any) => {
+                                    return inline ? (
+                                      <code
+                                        className="bg-gray-100 px-1 py-0.5 rounded text-xs"
+                                        {...props}
+                                      >
+                                        {children}
+                                      </code>
+                                    ) : (
+                                      <pre className="bg-gray-800 text-gray-100 p-2 rounded text-xs overflow-x-auto">
+                                        <code className={className} {...props}>
+                                          {children}
+                                        </code>
+                                      </pre>
+                                    );
+                                  },
+                                  p: ({ children }: any) => (
+                                    <p className="text-gray-600 leading-relaxed mb-2 text-sm">
+                                      {children}
+                                    </p>
+                                  ),
+                                  h1: ({ children }: any) => (
+                                    <h1 className="text-lg font-bold text-gray-800 mb-2">
+                                      {children}
+                                    </h1>
+                                  ),
+                                  h2: ({ children }: any) => (
+                                    <h2 className="text-md font-semibold text-gray-800 mb-2">
+                                      {children}
+                                    </h2>
+                                  ),
+                                  h3: ({ children }: any) => (
+                                    <h3 className="text-sm font-medium text-gray-800 mb-1">
+                                      {children}
+                                    </h3>
+                                  ),
+                                }}
+                              >
+                                {message}
+                              </ReactMarkdown>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -559,10 +669,67 @@ export default function SessionDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <pre className="whitespace-pre-wrap text-sm font-mono overflow-x-auto">
+              <div className="bg-white rounded-lg border p-6 prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-strong:text-gray-900 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-900 prose-pre:text-gray-100">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                  components={{
+                    code: ({ inline, className, children, ...props }: any) => {
+                      const match = /language-(\w+)/.exec(className || "");
+                      return !inline && match ? (
+                        <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        </pre>
+                      ) : (
+                        <code
+                          className="bg-gray-100 px-1 py-0.5 rounded text-sm"
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                    h1: ({ children }: any) => (
+                      <h1 className="text-2xl font-bold text-gray-900 mb-4 mt-6 border-b pb-2">
+                        {children}
+                      </h1>
+                    ),
+                    h2: ({ children }: any) => (
+                      <h2 className="text-xl font-semibold text-gray-800 mb-3 mt-5">
+                        {children}
+                      </h2>
+                    ),
+                    h3: ({ children }: any) => (
+                      <h3 className="text-lg font-medium text-gray-800 mb-2 mt-4">
+                        {children}
+                      </h3>
+                    ),
+                    blockquote: ({ children }: any) => (
+                      <blockquote className="border-l-4 border-blue-500 pl-4 py-2 bg-blue-50 italic text-gray-700 my-4">
+                        {children}
+                      </blockquote>
+                    ),
+                    ul: ({ children }: any) => (
+                      <ul className="list-disc list-inside space-y-1 my-3 text-gray-700">
+                        {children}
+                      </ul>
+                    ),
+                    ol: ({ children }: any) => (
+                      <ol className="list-decimal list-inside space-y-1 my-3 text-gray-700">
+                        {children}
+                      </ol>
+                    ),
+                    p: ({ children }: any) => (
+                      <p className="text-gray-700 leading-relaxed mb-3">
+                        {children}
+                      </p>
+                    ),
+                  }}
+                >
                   {session.status.finalOutput}
-                </pre>
+                </ReactMarkdown>
               </div>
             </CardContent>
           </Card>
