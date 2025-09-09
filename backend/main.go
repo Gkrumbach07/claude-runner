@@ -133,15 +133,23 @@ type LLMSettings struct {
 	MaxTokens   int     `json:"maxTokens"`
 }
 
+type MessageObject struct {
+	Content        string `json:"content,omitempty"`
+	ToolUseID      string `json:"tool_use_id,omitempty"`
+	ToolUseName    string `json:"tool_use_name,omitempty"`
+	ToolUseInput   string `json:"tool_use_input,omitempty"`
+	ToolUseIsError *bool  `json:"tool_use_is_error,omitempty"`
+}
+
 type ResearchSessionStatus struct {
-	Phase          string   `json:"phase,omitempty"`
-	Message        string   `json:"message,omitempty"`
-	StartTime      *string  `json:"startTime,omitempty"`
-	CompletionTime *string  `json:"completionTime,omitempty"`
-	JobName        string   `json:"jobName,omitempty"`
-	FinalOutput    string   `json:"finalOutput,omitempty"`
-	Cost           *float64 `json:"cost,omitempty"`
-	Messages       []string `json:"messages,omitempty"`
+	Phase          string          `json:"phase,omitempty"`
+	Message        string          `json:"message,omitempty"`
+	StartTime      *string         `json:"startTime,omitempty"`
+	CompletionTime *string         `json:"completionTime,omitempty"`
+	JobName        string          `json:"jobName,omitempty"`
+	FinalOutput    string          `json:"finalOutput,omitempty"`
+	Cost           *float64        `json:"cost,omitempty"`
+	Messages       []MessageObject `json:"messages,omitempty"`
 }
 
 type CreateResearchSessionRequest struct {
@@ -544,10 +552,32 @@ func parseStatus(status map[string]interface{}) *ResearchSessionStatus {
 	}
 
 	if messages, ok := status["messages"].([]interface{}); ok {
-		result.Messages = make([]string, len(messages))
+		result.Messages = make([]MessageObject, len(messages))
 		for i, msg := range messages {
-			if msgStr, ok := msg.(string); ok {
-				result.Messages[i] = msgStr
+			if msgMap, ok := msg.(map[string]interface{}); ok {
+				messageObj := MessageObject{}
+
+				if content, ok := msgMap["content"].(string); ok {
+					messageObj.Content = content
+				}
+
+				if toolUseID, ok := msgMap["tool_use_id"].(string); ok {
+					messageObj.ToolUseID = toolUseID
+				}
+
+				if toolUseName, ok := msgMap["tool_use_name"].(string); ok {
+					messageObj.ToolUseName = toolUseName
+				}
+
+				if toolUseInput, ok := msgMap["tool_use_input"].(string); ok {
+					messageObj.ToolUseInput = toolUseInput
+				}
+
+				if toolUseIsError, ok := msgMap["tool_use_is_error"].(bool); ok {
+					messageObj.ToolUseIsError = &toolUseIsError
+				}
+
+				result.Messages[i] = messageObj
 			}
 		}
 	}

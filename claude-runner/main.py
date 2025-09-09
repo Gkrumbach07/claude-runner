@@ -307,39 +307,112 @@ Return only the display name, nothing else."""
                         logger.debug(f"Received message type: {message_type}")
 
                         # Stream content as it arrives
+                        print(f"[DEBUG] message object: {message}")
                         if hasattr(message, "content"):
-                            print(f"[DEBUG] message object: {message}")
+                            import json
+
                             for block in message.content:
+                                message_obj = None
+
+                                # Check for TextBlock (has 'text' attribute)
                                 if hasattr(block, "text"):
                                     text = block.text
                                     response_text.append(text)
-                                    # Track individual messages and update CRD in real-time
+
                                     if (
                                         text.strip()
                                     ):  # Only log and track non-empty text
                                         logger.info(f"[MODEL OUTPUT] {text}")
-                                        all_messages.append(text.strip())
-                                        # Update CRD with new message
-                                        await self.update_session_status(
-                                            {
-                                                "phase": "Running",
-                                                "message": f"Processing... ({len(all_messages)} messages received)",
-                                                "messages": all_messages,
-                                            }
+                                        message_obj = {"content": text.strip()}
+
+                                # Check for ToolUseBlock (has 'id', 'name', 'input' attributes)
+                                elif (
+                                    hasattr(block, "id")
+                                    and hasattr(block, "name")
+                                    and hasattr(block, "input")
+                                ):
+                                    tool_input = (
+                                        json.dumps(block.input) if block.input else "{}"
+                                    )
+                                    logger.info(f"[TOOL USE] {block.name} ({block.id})")
+                                    message_obj = {
+                                        "tool_use_id": block.id,
+                                        "tool_use_name": block.name,
+                                        "tool_use_input": tool_input,
+                                    }
+
+                                # Check for ToolResultBlock (has 'tool_use_id', 'content', 'is_error' attributes)
+                                elif hasattr(block, "tool_use_id") and hasattr(
+                                    block, "content"
+                                ):
+                                    content = ""
+                                    if isinstance(block.content, list):
+                                        # Handle list of content items
+                                        content_parts = []
+                                        for item in block.content:
+                                            if (
+                                                isinstance(item, dict)
+                                                and "text" in item
+                                            ):
+                                                content_parts.append(item["text"])
+                                            elif isinstance(item, str):
+                                                content_parts.append(item)
+                                        content = "\n".join(content_parts)
+                                    elif isinstance(block.content, str):
+                                        content = block.content
+                                    else:
+                                        content = str(block.content)
+
+                                    # Truncate very long content
+                                    if len(content) > 5000:
+                                        content = (
+                                            content[:5000]
+                                            + "\n\n[Content truncated - full content available in logs]"
                                         )
-                                elif hasattr(block, "type"):
-                                    # Handle other content types (tool use, tool result, etc.)
+
+                                    is_error = getattr(block, "is_error", False)
                                     logger.info(
-                                        f"[TOOL BLOCK] {block.type}: {getattr(block, 'name', 'unknown')}"
+                                        f"[TOOL RESULT] {block.tool_use_id} (error: {is_error})"
                                     )
 
-                        # Handle tool use messages
-                        if hasattr(message, "tool_use"):
-                            logger.info(f"[TOOL USE] {message.tool_use}")
+                                    # Find and update the corresponding tool use message
+                                    for i, existing_msg in enumerate(
+                                        reversed(all_messages)
+                                    ):
+                                        if (
+                                            existing_msg.get("tool_use_id")
+                                            == block.tool_use_id
+                                            and "content" not in existing_msg
+                                        ):
+                                            # Update the existing tool use message with result
+                                            idx = len(all_messages) - 1 - i
+                                            all_messages[idx]["content"] = content
+                                            all_messages[idx][
+                                                "tool_use_is_error"
+                                            ] = is_error
+                                            message_obj = None  # Don't create new message, we updated existing
+                                            break
+                                    else:
+                                        # No matching tool use found, create standalone result
+                                        message_obj = {
+                                            "content": content,
+                                            "tool_use_id": block.tool_use_id,
+                                            "tool_use_is_error": is_error,
+                                        }
 
-                        # Handle error messages
-                        if hasattr(message, "error"):
-                            logger.error(f"[CLAUDE ERROR] {message.error}")
+                                # Add message object to tracking if we created one
+                                if message_obj:
+                                    all_messages.append(message_obj)
+
+                            # Update CRD with all messages after processing this message's blocks
+                            if hasattr(message, "content") and message.content:
+                                await self.update_session_status(
+                                    {
+                                        "phase": "Running",
+                                        "message": f"Processing... ({len(all_messages)} messages received)",
+                                        "messages": all_messages,
+                                    }
+                                )
 
                         # Get final result with metadata
                         if message_type == "ResultMessage":
@@ -354,10 +427,20 @@ Return only the display name, nothing else."""
                         logger.debug(f"Message content: {message}")
                         continue
 
-                # Combine response
-                result = "".join(response_text)
+                # Get final result - use the last message content
+                result = ""
+                if response_text:
+                    # Find the last non-empty text response
+                    for text in reversed(response_text):
+                        if text.strip():
+                            result = text.strip()
+                            break
 
-                if not result.strip():
+                if not result:
+                    # Fallback to joining all if no single final message found
+                    result = "".join(response_text).strip()
+
+                if not result:
                     raise RuntimeError("Claude Code SDK returned empty result")
 
                 logger.info(f"Research completed successfully ({len(result)} chars)")

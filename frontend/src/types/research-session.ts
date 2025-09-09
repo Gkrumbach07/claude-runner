@@ -13,6 +13,14 @@ export type ResearchSessionSpec = {
 	timeout: number;
 };
 
+export type MessageObject = {
+	content?: string;
+	tool_use_id?: string;
+	tool_use_name?: string;
+	tool_use_input?: string;
+	tool_use_is_error?: boolean;
+};
+
 export type ResearchSessionStatus = {
 	phase: ResearchSessionPhase;
 	message?: string;
@@ -21,7 +29,7 @@ export type ResearchSessionStatus = {
 	jobName?: string;
 	finalOutput?: string;
 	cost?: number;
-	messages?: string[];
+	messages?: MessageObject[];
 };
 
 export type ResearchSession = {

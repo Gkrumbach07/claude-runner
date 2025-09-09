@@ -17,6 +17,7 @@ import {
 
 // Custom components
 import { Message } from "@/components/ui/message";
+import { ToolMessage } from "@/components/ui/tool-message";
 
 // Markdown rendering
 import ReactMarkdown from "react-markdown";
@@ -510,15 +511,32 @@ export default function SessionDetailPage() {
             <CardContent>
               <div className="max-h-96 overflow-y-auto space-y-4 bg-gray-50 rounded-lg p-4">
                 {/* Display all existing messages */}
-                {session.status?.messages?.map((message, index) => (
-                  <Message
-                    key={index}
-                    role="bot"
-                    content={message}
-                    timestamp={`Message ${index + 1}`}
-                    name="Claude AI"
-                  />
-                ))}
+                {session.status?.messages?.map((message, index) => {
+                  // Check if this is a tool-related message
+                  const isToolMessage =
+                    message.tool_use_id || message.tool_use_name;
+
+                  if (isToolMessage) {
+                    return (
+                      <ToolMessage
+                        key={`tool-${index}-${message.tool_use_id}`}
+                        message={message}
+                        timestamp={`Message ${index + 1}`}
+                      />
+                    );
+                  } else {
+                    // Regular text message
+                    return (
+                      <Message
+                        key={`text-${index}`}
+                        role="bot"
+                        content={message.content || ""}
+                        timestamp={`Message ${index + 1}`}
+                        name="Claude AI"
+                      />
+                    );
+                  }
+                })}
 
                 {/* Show loading message if still processing */}
                 {(session.status?.phase === "Running" ||
