@@ -79,7 +79,7 @@ class ClaudeRunner:
             # Run Claude Code with our research prompt
             logger.info("Running Claude Code with MCP browser automation...")
 
-            result = await self._run_claude_code(research_prompt)
+            result, cost, all_messages = await self._run_claude_code(research_prompt)
 
             logger.info("Received comprehensive research analysis from Claude Code")
 
@@ -100,6 +100,8 @@ class ClaudeRunner:
                     "message": "Research completed successfully using Claude Code + Playwright MCP",
                     "completionTime": datetime.now(timezone.utc).isoformat(),
                     "finalOutput": result,
+                    "cost": cost,
+                    "messages": all_messages,
                 }
             )
 
@@ -128,7 +130,7 @@ class ClaudeRunner:
             logger.info("Verifying browser setup for OpenShift environment...")
 
             # Check if browser directory exists and is accessible
-            browser_path = "/app/.cache/ms-playwright"
+            browser_path = "/tmp/.cache/ms-playwright"
             if not os.path.exists(browser_path):
                 logger.warning(f"Browser cache directory not found at {browser_path}")
                 return
@@ -170,7 +172,7 @@ class ClaudeRunner:
             logger.error(f"Error during browser setup verification: {e}")
             # Don't fail the process, just log the warning
 
-    async def _run_claude_code(self, prompt: str) -> str:
+    async def _run_claude_code(self, prompt: str) -> tuple[str, float, list[str]]:
         """Run Claude Code using Python SDK with MCP browser automation"""
         try:
             logger.info("Initializing Claude Code Python SDK with MCP server...")
@@ -185,24 +187,7 @@ class ClaudeRunner:
                         "--browser",
                         "chromium",
                         "--no-sandbox",
-                        # "--user-data-dir",
-                        # "/app/.playwright-profile",
-                        # "--isolated",
                     ],
-                    # "env": {
-                    #     "PLAYWRIGHT_BROWSERS_PATH": "/app/.cache/ms-playwright",
-                    #     "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "true",
-                    #     "PW_CHROMIUM_ARGS": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=TranslateUI --disable-ipc-flooding-protection --no-first-run --no-default-browser-check --disable-web-security --disable-features=VizDisplayCompositor",
-                    #     "DEBUG": "pw:api" if log_level == logging.DEBUG else "",
-                    #     "DISPLAY": ":99",
-                    #     "PLAYWRIGHT_MCP_WORK_DIR": "/app/.playwright-mcp-work",
-                    #     "TMPDIR": "/app/tmp",
-                    #     "TMP": "/app/tmp",
-                    #     "HOME": "/app",
-                    #     "XDG_CONFIG_HOME": "/app/.config",
-                    #     "XDG_CACHE_HOME": "/app/.cache",
-                    #     "XDG_DATA_HOME": "/app/.local/share",
-                    # },
                 }
             }
 
@@ -227,6 +212,7 @@ class ClaudeRunner:
 
                 # Collect streaming response
                 response_text = []
+                all_messages = []  # Track all individual model outputs for CRD
                 cost = 0.0
                 duration = 0
 
@@ -243,9 +229,20 @@ class ClaudeRunner:
                                 if hasattr(block, "text"):
                                     text = block.text
                                     response_text.append(text)
-                                    # Stream model output to logs in real-time
-                                    if text.strip():  # Only log non-empty text
+                                    # Track individual messages and update CRD in real-time
+                                    if (
+                                        text.strip()
+                                    ):  # Only log and track non-empty text
                                         logger.info(f"[MODEL OUTPUT] {text}")
+                                        all_messages.append(text.strip())
+                                        # Update CRD with new message
+                                        await self.update_session_status(
+                                            {
+                                                "phase": "Running",
+                                                "message": f"Processing... ({len(all_messages)} messages received)",
+                                                "messages": all_messages,
+                                            }
+                                        )
                                 elif hasattr(block, "type"):
                                     # Handle other content types (tool use, tool result, etc.)
                                     logger.info(
@@ -282,7 +279,7 @@ class ClaudeRunner:
                 logger.info(f"Research completed successfully ({len(result)} chars)")
                 logger.info(f"Cost: ${cost:.4f}, Duration: {duration}ms")
 
-                return result
+                return result, cost, all_messages
 
         except Exception as e:
             logger.error(f"Error running Claude Code SDK: {str(e)}")

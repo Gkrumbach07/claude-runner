@@ -20,6 +20,8 @@ export type ResearchSessionStatus = {
 	completionTime?: string;
 	jobName?: string;
 	finalOutput?: string;
+	cost?: number;
+	messages?: string[];
 };
 
 export type ResearchSession = {

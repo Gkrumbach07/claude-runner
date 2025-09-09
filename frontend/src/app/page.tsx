@@ -261,6 +261,7 @@ export default function HomePage() {
                     <TableHead className="hidden lg:table-cell">
                       Created
                     </TableHead>
+                    <TableHead className="hidden xl:table-cell">Cost</TableHead>
                     <TableHead className="w-[50px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -306,6 +307,15 @@ export default function HomePage() {
                           {
                             addSuffix: true,
                           }
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden xl:table-cell">
+                        {session.status?.cost ? (
+                          <span className="text-sm font-mono">
+                            ${session.status.cost.toFixed(4)}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-400">—</span>
                         )}
                       </TableCell>
                       <TableCell>

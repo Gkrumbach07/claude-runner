@@ -69,7 +69,15 @@ spec:
                 description: "Name of the Kubernetes job created for this session"
               finalOutput:
                 type: string
-                description: "The final research output from Claude"
+                description: "The final research output from Claude (last message)"
+              cost:
+                type: number
+                description: "Total cost of the research session in USD"
+              messages:
+                type: array
+                items:
+                  type: string
+                description: "Array of all model outputs during the research session"
     additionalPrinterColumns:
     - name: Phase
       type: string

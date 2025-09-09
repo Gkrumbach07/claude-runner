@@ -37,19 +37,6 @@ RUN cd /app && echo '{"name":"claude-runner","dependencies":{"playwright":"*","@
 RUN npx playwright install-deps chromium && \
     npx playwright install chromium
 
-# # OpenShift-compatible setup: Create directories with proper permissions for any UID
-# RUN mkdir -p /app/.cache/ms-playwright \
-#     && mkdir -p /app/.playwright-profile \
-#     && mkdir -p /app/.playwright-mcp-work \
-#     && mkdir -p /app/.config \
-#     && mkdir -p /app/.local/share \
-#     && mkdir -p /app/tmp \
-#     && chmod -R 777 /app/.cache \
-#     && chmod -R 777 /app/.playwright-profile \
-#     && chmod -R 777 /app/.playwright-mcp-work \
-#     && chmod -R 777 /app/.config \
-#     && chmod -R 777 /app/.local \
-#     && chmod -R 777 /app/tmp
 
 # Move browsers to tmp directory for OpenShift compatibility
 RUN if [ -d /root/.cache/ms-playwright ]; then \
@@ -79,15 +66,6 @@ ENV NODE_OPTIONS="--max-old-space-size=2048"
 ENV HOME=/app
 ENV SHELL=/bin/bash
 ENV TERM=xterm-256color
-
-# Playwright configuration for OpenShift
-# ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
-# ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=true
-# ENV PW_CHROMIUM_ARGS="--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-extensions --disable-plugins --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=TranslateUI --disable-ipc-flooding-protection --no-first-run --no-default-browser-check --disable-web-security --disable-features=VizDisplayCompositor"
-
-# # Health check
-# HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-#     CMD python -c "import sys; sys.exit(0)"
 
 # OpenShift runs with random UID - don't set USER directive
 # Ensure /app directory is accessible to any UID

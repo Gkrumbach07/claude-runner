@@ -443,7 +443,55 @@ export default function SessionDetailPage() {
                       </p>
                     </div>
                   )}
+
+                  {session.status.cost && (
+                    <div>
+                      <p className="font-semibold">Cost</p>
+                      <p className="text-muted-foreground">
+                        ${session.status.cost.toFixed(4)}
+                      </p>
+                    </div>
+                  )}
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Real-time Messages Progress */}
+        {session.status?.messages && session.status.messages.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Research Progress</span>
+                <Badge variant="secondary">
+                  {session.status.messages.length} message
+                  {session.status.messages.length !== 1 ? "s" : ""}
+                </Badge>
+              </CardTitle>
+              <CardDescription>
+                Real-time messages from Claude during the research process
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {session.status.messages.map((message, index) => (
+                  <div
+                    key={index}
+                    className="border-l-2 border-blue-200 pl-4 py-2"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge variant="outline" className="text-xs">
+                        Message {index + 1}
+                      </Badge>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <pre className="whitespace-pre-wrap text-sm font-mono overflow-x-auto">
+                        {message}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
