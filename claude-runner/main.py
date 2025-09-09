@@ -184,6 +184,7 @@ class ClaudeRunner:
                         "--headless",
                         "--browser",
                         "chromium",
+                        "--no-sandbox",
                         # "--user-data-dir",
                         # "/app/.playwright-profile",
                         # "--isolated",
