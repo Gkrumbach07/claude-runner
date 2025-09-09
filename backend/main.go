@@ -57,7 +57,6 @@ func main() {
 		api.DELETE("/research-sessions/:name", deleteResearchSession)
 		api.PUT("/research-sessions/:name/status", updateResearchSessionStatus)
 		api.POST("/research-sessions/:name/stop", stopResearchSession)
-		api.POST("/research-sessions/:name/restart", restartResearchSession)
 	}
 
 	// Health check endpoint
@@ -133,12 +132,14 @@ type LLMSettings struct {
 }
 
 type ResearchSessionStatus struct {
-	Phase          string  `json:"phase,omitempty"`
-	Message        string  `json:"message,omitempty"`
-	StartTime      *string `json:"startTime,omitempty"`
-	CompletionTime *string `json:"completionTime,omitempty"`
-	JobName        string  `json:"jobName,omitempty"`
-	FinalOutput    string  `json:"finalOutput,omitempty"`
+	Phase          string   `json:"phase,omitempty"`
+	Message        string   `json:"message,omitempty"`
+	StartTime      *string  `json:"startTime,omitempty"`
+	CompletionTime *string  `json:"completionTime,omitempty"`
+	JobName        string   `json:"jobName,omitempty"`
+	FinalOutput    string   `json:"finalOutput,omitempty"`
+	Cost           *float64 `json:"cost,omitempty"`
+	Messages       []string `json:"messages,omitempty"`
 }
 
 type CreateResearchSessionRequest struct {
@@ -428,71 +429,6 @@ func stopResearchSession(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Research session stopped successfully"})
 }
 
-func restartResearchSession(c *gin.Context) {
-	name := c.Param("name")
-	gvr := getResearchSessionResource()
-
-	// Get current resource
-	item, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, v1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Research session not found"})
-			return
-		}
-		log.Printf("Failed to get research session %s: %v", name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get research session"})
-		return
-	}
-
-	// Get current status
-	status, ok := item.Object["status"].(map[string]interface{})
-	if !ok {
-		status = make(map[string]interface{})
-		item.Object["status"] = status
-	}
-
-	currentPhase, _ := status["phase"].(string)
-	if currentPhase == "Running" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot restart session that is currently running. Stop it first."})
-		return
-	}
-
-	// Get job name from status and delete existing job if it exists
-	jobName, jobExists := status["jobName"].(string)
-	if jobExists && jobName != "" {
-		err := k8sClient.BatchV1().Jobs(namespace).Delete(context.TODO(), jobName, v1.DeleteOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			log.Printf("Failed to delete existing job %s: %v", jobName, err)
-		} else {
-			log.Printf("Deleted existing job %s for restart of research session %s", jobName, name)
-		}
-	}
-
-	// Reset status to Pending - this will trigger the operator to create a new job
-	status["phase"] = "Pending"
-	status["message"] = "Research session restarted by user"
-	delete(status, "startTime")
-	delete(status, "completionTime")
-	delete(status, "jobName")
-	delete(status, "finalOutput")
-
-	// Update the resource
-	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(context.TODO(), item, v1.UpdateOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			log.Printf("Research session %s was deleted during restart operation", name)
-			c.JSON(http.StatusNotFound, gin.H{"error": "Research session no longer exists"})
-			return
-		}
-		log.Printf("Failed to update research session status %s: %v", name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update research session status"})
-		return
-	}
-
-	log.Printf("Successfully restarted research session %s", name)
-	c.JSON(http.StatusOK, gin.H{"message": "Research session restarted successfully"})
-}
-
 // Helper functions for parsing
 func parseSpec(spec map[string]interface{}) ResearchSessionSpec {
 	result := ResearchSessionSpec{}
@@ -549,6 +485,19 @@ func parseStatus(status map[string]interface{}) *ResearchSessionStatus {
 
 	if finalOutput, ok := status["finalOutput"].(string); ok {
 		result.FinalOutput = finalOutput
+	}
+
+	if cost, ok := status["cost"].(float64); ok {
+		result.Cost = &cost
+	}
+
+	if messages, ok := status["messages"].([]interface{}); ok {
+		result.Messages = make([]string, len(messages))
+		for i, msg := range messages {
+			if msgStr, ok := msg.(string); ok {
+				result.Messages[i] = msgStr
+			}
+		}
 	}
 
 	return result

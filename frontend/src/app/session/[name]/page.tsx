@@ -12,9 +12,11 @@ import {
   Globe,
   Brain,
   Square,
-  RotateCcw,
   Trash2,
 } from "lucide-react";
+
+// PatternFly imports
+import { Truncate } from "@patternfly/react-core";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -120,30 +122,6 @@ export default function SessionDetailPage() {
       await fetchSession(); // Refresh the session data
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop session");
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleRestart = async () => {
-    if (!session) return;
-    setActionLoading("restarting");
-    try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(
-        `${apiUrl}/research-sessions/${sessionName}/restart`,
-        {
-          method: "POST",
-        }
-      );
-      if (!response.ok) {
-        throw new Error("Failed to restart session");
-      }
-      await fetchSession(); // Refresh the session data
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to restart session"
-      );
     } finally {
       setActionLoading(null);
     }
@@ -260,25 +238,6 @@ export default function SessionDetailPage() {
                 );
               }
 
-              // Restart button for Completed/Failed/Stopped/Error sessions
-              if (
-                phase === "Completed" ||
-                phase === "Failed" ||
-                phase === "Stopped" ||
-                phase === "Error"
-              ) {
-                buttons.push(
-                  <Button
-                    key="restart"
-                    variant="default"
-                    onClick={handleRestart}
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Restart
-                  </Button>
-                );
-              }
-
               // Delete button for all sessions (except running/creating)
               if (phase !== "Running" && phase !== "Creating") {
                 buttons.push(
@@ -349,15 +308,24 @@ export default function SessionDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center space-x-2">
-                <a
-                  href={session.spec.websiteURL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline flex items-center"
-                >
-                  {session.spec.websiteURL}
-                  <ExternalLink className="w-4 h-4 ml-1" />
-                </a>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center">
+                    <Truncate
+                      content={session.spec.websiteURL}
+                      tooltipPosition="top"
+                      position="end"
+                      className="text-blue-600 hover:underline"
+                    />
+                    <a
+                      href={session.spec.websiteURL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 flex-shrink-0"
+                    >
+                      <ExternalLink className="w-4 h-4 text-blue-600 hover:text-blue-800" />
+                    </a>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -458,40 +426,124 @@ export default function SessionDetailPage() {
           </Card>
         )}
 
-        {/* Real-time Messages Progress */}
-        {session.status?.messages && session.status.messages.length > 0 && (
+        {/* Real-time Messages Progress - PatternFly Chatbot Style */}
+        {((session.status?.messages && session.status.messages.length > 0) ||
+          session.status?.phase === "Running" ||
+          session.status?.phase === "Pending" ||
+          session.status?.phase === "Creating") && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span>Research Progress</span>
                 <Badge variant="secondary">
-                  {session.status.messages.length} message
-                  {session.status.messages.length !== 1 ? "s" : ""}
+                  {session.status?.messages?.length || 0} message
+                  {(session.status?.messages?.length || 0) !== 1 ? "s" : ""}
                 </Badge>
               </CardTitle>
-              <CardDescription>
-                Real-time messages from Claude during the research process
-              </CardDescription>
+              <CardDescription>Live analysis from Claude AI</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {session.status.messages.map((message, index) => (
-                  <div
-                    key={index}
-                    className="border-l-2 border-blue-200 pl-4 py-2"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <Badge variant="outline" className="text-xs">
-                        Message {index + 1}
-                      </Badge>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <pre className="whitespace-pre-wrap text-sm font-mono overflow-x-auto">
-                        {message}
-                      </pre>
+              <div className="max-h-96 overflow-y-auto space-y-4 bg-gray-50 rounded-lg p-4">
+                {/* Display all existing messages */}
+                {session.status?.messages?.map((message, index) => (
+                  <div key={index} className="mb-4">
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                          <span className="text-white text-xs font-semibold">
+                            AI
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="bg-white rounded-lg border shadow-sm p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <Badge variant="outline" className="text-xs">
+                              Claude AI
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              Message {index + 1}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-800 prose prose-sm max-w-none">
+                            <Truncate
+                              content={message}
+                              tooltipPosition="top"
+                              position="end"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
+
+                {/* Show loading message if still processing */}
+                {(session.status?.phase === "Running" ||
+                  session.status?.phase === "Pending" ||
+                  session.status?.phase === "Creating") && (
+                  <div className="mb-4">
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center animate-pulse">
+                          <span className="text-white text-xs font-semibold">
+                            AI
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="bg-white rounded-lg border shadow-sm p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge
+                              variant="outline"
+                              className="text-xs animate-pulse"
+                            >
+                              Claude AI
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              Analyzing...
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {session.status?.phase === "Pending"
+                              ? "Research session is queued and waiting to start..."
+                              : session.status?.phase === "Creating"
+                              ? "Creating research environment..."
+                              : "Analyzing the website and generating insights..."}
+                            <div className="flex items-center mt-2">
+                              <div className="flex space-x-1">
+                                <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"></div>
+                                <div
+                                  className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"
+                                  style={{ animationDelay: "0.1s" }}
+                                ></div>
+                                <div
+                                  className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"
+                                  style={{ animationDelay: "0.2s" }}
+                                ></div>
+                              </div>
+                              <span className="ml-2 text-xs text-gray-400">
+                                Thinking...
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Show empty state if no messages yet */}
+                {(!session.status?.messages ||
+                  session.status.messages.length === 0) &&
+                  session.status?.phase !== "Running" &&
+                  session.status?.phase !== "Pending" &&
+                  session.status?.phase !== "Creating" && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Brain className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>No messages yet</p>
+                    </div>
+                  )}
               </div>
             </CardContent>
           </Card>
@@ -511,26 +563,6 @@ export default function SessionDetailPage() {
                 <pre className="whitespace-pre-wrap text-sm font-mono overflow-x-auto">
                   {session.status.finalOutput}
                 </pre>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Loading state for active sessions */}
-        {(session.status?.phase === "Pending" ||
-          session.status?.phase === "Creating" ||
-          session.status?.phase === "Running") && (
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="animate-spin h-6 w-6 mr-3" />
-                <span className="text-lg">
-                  {session.status?.phase === "Pending"
-                    ? "Research session is queued and waiting to start..."
-                    : session.status?.phase === "Creating"
-                    ? "Creating Kubernetes job for research session..."
-                    : "Claude is analyzing the website..."}
-                </span>
               </div>
             </CardContent>
           </Card>
