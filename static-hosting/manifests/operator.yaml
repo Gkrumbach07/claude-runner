@@ -1,0 +1,99 @@
+---
+# Operator ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: static-hosting-operator
+  namespace: static-hosting
+---
+# Operator ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: static-hosting-operator
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["hosting.example.com"]
+  resources: ["staticsites"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["hosting.example.com"]
+  resources: ["staticsites/status"]
+  verbs: ["get", "patch", "update"]
+---
+# Operator ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: static-hosting-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: static-hosting-operator
+subjects:
+- kind: ServiceAccount
+  name: static-hosting-operator
+  namespace: static-hosting
+---
+# Operator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: static-hosting-operator
+  namespace: static-hosting
+  labels:
+    app: static-hosting-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: static-hosting-operator
+  template:
+    metadata:
+      labels:
+        app: static-hosting-operator
+    spec:
+      serviceAccountName: static-hosting-operator
+      containers:
+      - name: operator
+        image: quay.io/example/static-hosting-operator:latest
+        env:
+        - name: NAMESPACE
+          value: "static-hosting"
+        - name: BUILDER_IMAGE
+          value: "quay.io/example/static-site-builder:latest"
+        - name: MINIO_ENDPOINT
+          value: "http://minio.minio.svc:9000"
+        - name: MINIO_ACCESS_KEY
+          value: "admin"
+        - name: MINIO_SECRET_KEY
+          value: "password123"
+        - name: BASE_DOMAIN
+          value: "sites.apps.example.com"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10

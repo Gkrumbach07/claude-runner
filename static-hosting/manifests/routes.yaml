@@ -1,0 +1,44 @@
+---
+# Main wildcard route for subdomain-based access
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: sites-wildcard
+  namespace: static-hosting
+  labels:
+    app: static-hosting
+    component: routing
+spec:
+  host: "*.sites.apps.example.com"
+  to:
+    kind: Service
+    name: nginx-proxy
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: Subdomain
+---
+# Main route for path-based access
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: sites-main
+  namespace: static-hosting
+  labels:
+    app: static-hosting
+    component: routing
+spec:
+  host: sites.apps.example.com
+  to:
+    kind: Service
+    name: nginx-proxy
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  path: /
