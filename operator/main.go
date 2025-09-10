@@ -26,6 +26,7 @@ var (
 	dynamicClient     dynamic.Interface
 	namespace         string
 	claudeRunnerImage string
+	openHandsImage    string
 )
 
 func main() {
@@ -46,8 +47,15 @@ func main() {
 		claudeRunnerImage = "quay.io/gkrumbach07/claude-runner:latest"
 	}
 
+	// Get openhands-runner image from environment or use default
+	openHandsImage = os.Getenv("OPENHANDS_RUNNER_IMAGE")
+	if openHandsImage == "" {
+		openHandsImage = "quay.io/gkrumbach07/openhands-runner:latest"
+	}
+
 	log.Printf("Research Session Operator starting in namespace: %s", namespace)
 	log.Printf("Using claude-runner image: %s", claudeRunnerImage)
+	log.Printf("Using openhands-runner image: %s", openHandsImage)
 
 	// Start watching ResearchSession resources
 	go watchResearchSessions()
@@ -176,6 +184,7 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 
 	// Extract spec information from the fresh object
 	spec, _, _ := unstructured.NestedMap(currentObj.Object, "spec")
+	runner, _, _ := unstructured.NestedString(spec, "runner")
 	prompt, _, _ := unstructured.NestedString(spec, "prompt")
 	websiteURL, _, _ := unstructured.NestedString(spec, "websiteURL")
 	timeout, _, _ := unstructured.NestedInt64(spec, "timeout")
@@ -184,6 +193,62 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 	model, _, _ := unstructured.NestedString(llmSettings, "model")
 	temperature, _, _ := unstructured.NestedFloat64(llmSettings, "temperature")
 	maxTokens, _, _ := unstructured.NestedInt64(llmSettings, "maxTokens")
+
+	// Select image and env by runner
+	containerImage := claudeRunnerImage
+	containerName := "claude-runner"
+	containerEnv := []corev1.EnvVar{
+		{Name: "RESEARCH_SESSION_NAME", Value: name},
+		{Name: "RESEARCH_SESSION_NAMESPACE", Value: namespace},
+		{Name: "PROMPT", Value: prompt},
+		{Name: "WEBSITE_URL", Value: websiteURL},
+		{Name: "LLM_MODEL", Value: model},
+		{Name: "LLM_TEMPERATURE", Value: fmt.Sprintf("%.2f", temperature)},
+		{Name: "LLM_MAX_TOKENS", Value: fmt.Sprintf("%d", maxTokens)},
+		{Name: "TIMEOUT", Value: fmt.Sprintf("%d", timeout)},
+		{Name: "BACKEND_API_URL", Value: os.Getenv("BACKEND_API_URL")},
+		{
+			Name: "ANTHROPIC_API_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "claude-research-secrets"},
+					Key:                  "anthropic-api-key",
+				},
+			},
+		},
+		{Name: "HOME", Value: "/tmp"},
+		{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
+		{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
+		{Name: "XDG_DATA_HOME", Value: "/tmp/.local/share"},
+		{Name: "PW_CHROMIUM_ARGS", Value: "--no-sandbox --disable-gpu"},
+		{Name: "PLAYWRIGHT_BROWSERS_PATH", Value: "/tmp/.cache/ms-playwright"},
+	}
+	if runner == "openhands" {
+		containerImage = openHandsImage
+		containerName = "openhands-runner"
+		containerEnv = []corev1.EnvVar{
+			{Name: "RESEARCH_SESSION_NAME", Value: name},
+			{Name: "RESEARCH_SESSION_NAMESPACE", Value: namespace},
+			{Name: "PROMPT", Value: prompt},
+			{Name: "WEBSITE_URL", Value: websiteURL},
+			{Name: "TIMEOUT", Value: fmt.Sprintf("%d", timeout)},
+			{Name: "BACKEND_API_URL", Value: os.Getenv("BACKEND_API_URL")},
+			{Name: "LLM_MODEL", Value: model},
+			{
+				Name: "LLM_API_KEY",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "claude-research-secrets"},
+						Key:                  "anthropic-api-key",
+					},
+				},
+			},
+			{Name: "HOME", Value: "/tmp"},
+			{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
+			{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
+			{Name: "XDG_DATA_HOME", Value: "/tmp/.local/share"},
+		}
+	}
 
 	// Create the Job
 	job := &batchv1.Job{
@@ -239,8 +304,8 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 
 					Containers: []corev1.Container{
 						{
-							Name:  "claude-runner",
-							Image: claudeRunnerImage,
+							Name:  containerName,
+							Image: containerImage,
 							// 🔒 Container-level security (SCC-compatible, no privileged capabilities)
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: boolPtr(false),
@@ -255,44 +320,7 @@ func handleResearchSessionEvent(obj *unstructured.Unstructured) error {
 								{Name: "dshm", MountPath: "/dev/shm"},
 							},
 
-							Env: []corev1.EnvVar{
-								{Name: "RESEARCH_SESSION_NAME", Value: name},
-								{Name: "RESEARCH_SESSION_NAMESPACE", Value: namespace},
-								{Name: "PROMPT", Value: prompt},
-								{Name: "WEBSITE_URL", Value: websiteURL},
-								{Name: "LLM_MODEL", Value: model},
-								{Name: "LLM_TEMPERATURE", Value: fmt.Sprintf("%.2f", temperature)},
-								{Name: "LLM_MAX_TOKENS", Value: fmt.Sprintf("%d", maxTokens)},
-								{Name: "TIMEOUT", Value: fmt.Sprintf("%d", timeout)},
-								{Name: "BACKEND_API_URL", Value: os.Getenv("BACKEND_API_URL")},
-
-								// 🔑 Anthropic key from Secret
-								{
-									Name: "ANTHROPIC_API_KEY",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{Name: "claude-research-secrets"},
-											Key:                  "anthropic-api-key",
-										},
-									},
-								},
-
-								// ✅ Use /tmp for SCC-assigned random UID (OpenShift compatible)
-								{Name: "HOME", Value: "/tmp"},
-								{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
-								{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
-								{Name: "XDG_DATA_HOME", Value: "/tmp/.local/share"},
-
-								// 🧊 Playwright/Chromium optimized for containers with shared memory
-								{Name: "PW_CHROMIUM_ARGS", Value: "--no-sandbox --disable-gpu"},
-
-								// 📁 Playwright browser cache in writable location
-								{Name: "PLAYWRIGHT_BROWSERS_PATH", Value: "/tmp/.cache/ms-playwright"},
-
-								// (Optional) proxy envs if your cluster requires them:
-								// { Name: "HTTPS_PROXY", Value: "http://proxy.corp:3128" },
-								// { Name: "NO_PROXY",    Value: ".svc,.cluster.local,10.0.0.0/8" },
-							},
+							Env: containerEnv,
 
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{

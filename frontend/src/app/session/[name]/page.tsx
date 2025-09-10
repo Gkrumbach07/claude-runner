@@ -344,6 +344,9 @@ export default function SessionDetailPage() {
                   </div>
                 )}
                 <CardDescription>
+                  {session.spec.runner ? (
+                    <span className="inline-block mr-2">Runner: {session.spec.runner}</span>
+                  ) : null}
                   Created{" "}
                   {formatDistanceToNow(
                     new Date(session.metadata.creationTimestamp),
@@ -410,6 +413,12 @@ export default function SessionDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="font-semibold">Runner</p>
+                <p className="text-muted-foreground">
+                  {session.spec.runner || "claude"}
+                </p>
+              </div>
               <div>
                 <p className="font-semibold">Model</p>
                 <p className="text-muted-foreground">
@@ -512,7 +521,7 @@ export default function SessionDetailPage() {
                   {(session.status?.messages?.length || 0) !== 1 ? "s" : ""}
                 </Badge>
               </CardTitle>
-              <CardDescription>Live analysis from Claude AI</CardDescription>
+              <CardDescription>Live analysis from AI runner</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="max-h-96 overflow-y-auto space-y-4 bg-gray-50 rounded-lg p-4">

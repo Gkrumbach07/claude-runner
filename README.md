@@ -27,13 +27,14 @@ graph TB
         
         subgraph "Job Execution"
             JOB[Kubernetes Job]
-            POD[Claude Runner Pod<br/>Python + Claude Code CLI]
+            POD[Runner Pod<br/>Claude Code or OpenHands]
             MCP[Playwright MCP Server<br/>via Claude Code]
         end
     end
     
     subgraph "External Services"
         CLAUDE[Anthropic Claude API]
+        OH[OpenHands LLM Provider]
         WEB[Target Website]
     end
     
@@ -44,6 +45,7 @@ graph TB
     JOB --> POD
     POD --> MCP
     POD --> CLAUDE
+    POD --> OH
     MCP --> WEB
     POD --> API
 ```
@@ -55,7 +57,7 @@ graph TB
 | **Frontend** | NextJS + Shadcn | User interface for managing research sessions |
 | **Backend API** | Go + Gin | REST API for managing Kubernetes Custom Resources |
 | **Research Operator** | Go | Kubernetes operator that watches CRs and creates Jobs |
-| **Claude Runner** | Python + Claude Code CLI | Pod that executes Claude Code with Playwright MCP server |
+| **Runner** | Claude Code or OpenHands | Pod that executes selected runner (Claude Code + MCP or OpenHands Headless) |
 | **Playwright MCP** | MCP Server | Provides browser automation capabilities to Claude Code |
 
 ### Directory Structure
@@ -100,7 +102,7 @@ docker build --platform=linux/amd64 -t claude-runner-frontend:latest ./frontend/
 docker build --platform=linux/amd64 -t research-operator:latest ./operator/
 docker build --platform=linux/amd64 -t claude-runner:latest ./claude-runner/
 
-# Configure your Anthropic API key
+# Configure your Anthropic API key (used by Claude and OpenHands when using Anthropic models)
 echo -n "your-api-key" | base64  # Use this in secrets.yaml
 
 # Deploy to Kubernetes
@@ -181,6 +183,8 @@ make build-frontend
 make build-backend  
 make build-operator
 make build-runner
+# If using OpenHands:
+# docker build --platform=linux/amd64 -t openhands-runner:latest ./openhands-runner/
 ```
 
 ## 📊 Monitoring

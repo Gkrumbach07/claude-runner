@@ -18,6 +18,12 @@ spec:
             - prompt
             - websiteURL
             properties:
+              runner:
+                type: string
+                description: "Execution runner to use"
+                enum:
+                - claude
+                - openhands
               prompt:
                 type: string
                 description: "The initial prompt for the research session"
@@ -33,6 +39,7 @@ spec:
                   model:
                     type: string
                     default: "claude-3-5-sonnet-20241022"
+                    description: "Model identifier; for OpenHands, provider/model, e.g., anthropic/claude-3-5-sonnet-20241022"
                   temperature:
                     type: number
                     default: 0.7
