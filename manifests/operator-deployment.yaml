@@ -28,6 +28,8 @@ spec:
           value: "http://backend-service:8080/api"
         - name: CLAUDE_RUNNER_IMAGE
           value: "quay.io/gkrumbach07/claude-runner:latest"
+        - name: OPENHANDS_RUNNER_IMAGE
+          value: "quay.io/gkrumbach07/openhands-runner:latest"
         resources:
           requests:
             cpu: 50m

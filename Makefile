@@ -37,6 +37,7 @@ FRONTEND_IMAGE ?= claude-runner-frontend:latest
 BACKEND_IMAGE ?= claude-runner-backend:latest
 OPERATOR_IMAGE ?= research-operator:latest
 RUNNER_IMAGE ?= claude-runner:latest
+OPENHANDS_IMAGE ?= openhands-runner:latest
 
 # Build all images
 build-all: build-frontend build-backend build-operator build-runner ## Build all container images
@@ -57,6 +58,10 @@ build-operator: ## Build the operator container image
 build-runner: ## Build the Claude runner container image
 	@echo "Building Claude runner image with $(CONTAINER_ENGINE)..."
 	cd claude-runner && $(CONTAINER_ENGINE) build $(PLATFORM_FLAG) $(BUILD_FLAGS) -t $(RUNNER_IMAGE) .
+
+build-openhands: ## Build the OpenHands runner container image
+	@echo "Building OpenHands runner image with $(CONTAINER_ENGINE)..."
+	cd openhands-runner && $(CONTAINER_ENGINE) build $(PLATFORM_FLAG) $(BUILD_FLAGS) -t $(OPENHANDS_IMAGE) .
 
 # Development targets
 dev-frontend: ## Start frontend in development mode
@@ -143,6 +148,7 @@ kind-load: build-all ## Load all images into Kind cluster
 	kind load $(CONTAINER_ENGINE)-image $(BACKEND_IMAGE) --name claude-research
 	kind load $(CONTAINER_ENGINE)-image $(OPERATOR_IMAGE) --name claude-research
 	kind load $(CONTAINER_ENGINE)-image $(RUNNER_IMAGE) --name claude-research
+	- kind load $(CONTAINER_ENGINE)-image $(OPENHANDS_IMAGE) --name claude-research
 
 kind-deploy: kind-load deploy ## Deploy to Kind cluster
 
@@ -181,10 +187,12 @@ push-all: build-all ## Push all images to registry
 	$(CONTAINER_ENGINE) tag $(BACKEND_IMAGE) $(REGISTRY)/$(BACKEND_IMAGE)
 	$(CONTAINER_ENGINE) tag $(OPERATOR_IMAGE) $(REGISTRY)/$(OPERATOR_IMAGE)
 	$(CONTAINER_ENGINE) tag $(RUNNER_IMAGE) $(REGISTRY)/$(RUNNER_IMAGE)
+	- $(CONTAINER_ENGINE) tag $(OPENHANDS_IMAGE) $(REGISTRY)/$(OPENHANDS_IMAGE)
 	$(CONTAINER_ENGINE) push $(REGISTRY)/$(FRONTEND_IMAGE)
 	$(CONTAINER_ENGINE) push $(REGISTRY)/$(BACKEND_IMAGE)
 	$(CONTAINER_ENGINE) push $(REGISTRY)/$(OPERATOR_IMAGE)
 	$(CONTAINER_ENGINE) push $(REGISTRY)/$(RUNNER_IMAGE)
+	- $(CONTAINER_ENGINE) push $(REGISTRY)/$(OPENHANDS_IMAGE)
 
 # Utility targets
 install-deps: ## Install development dependencies

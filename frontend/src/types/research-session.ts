@@ -7,6 +7,7 @@ export type LLMSettings = {
 };
 
 export type ResearchSessionSpec = {
+	runner?: "claude" | "openhands";
 	prompt: string;
 	websiteURL: string;
 	llmSettings: LLMSettings;
@@ -45,6 +46,7 @@ export type ResearchSession = {
 };
 
 export type CreateResearchSessionRequest = {
+	runner?: "claude" | "openhands";
 	prompt: string;
 	websiteURL: string;
 	llmSettings?: Partial<LLMSettings>;

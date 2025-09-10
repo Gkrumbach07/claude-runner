@@ -39,6 +39,7 @@ import { CreateResearchSessionRequest } from "@/types/research-session";
 import { getApiUrl } from "@/lib/config";
 
 const formSchema = z.object({
+  runner: z.enum(["claude", "openhands"]),
   prompt: z.string().min(10, "Prompt must be at least 10 characters long"),
   websiteURL: z.string().url("Please enter a valid URL"),
   model: z.string().min(1, "Please select a model"),
@@ -63,6 +64,7 @@ export default function NewResearchSessionPage() {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      runner: "claude",
       prompt: "",
       websiteURL: "",
       model: "claude-3-5-sonnet-20241022",
@@ -78,6 +80,7 @@ export default function NewResearchSessionPage() {
 
     try {
       const request: CreateResearchSessionRequest = {
+        runner: values.runner,
         prompt: values.prompt,
         websiteURL: values.websiteURL,
         llmSettings: {
@@ -136,6 +139,31 @@ export default function NewResearchSessionPage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <FormField
+                control={form.control}
+                name="runner"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Runner</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a runner" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="claude">Claude Code + Playwright</SelectItem>
+                        <SelectItem value="openhands">OpenHands Headless</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Choose execution engine for this session
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="prompt"

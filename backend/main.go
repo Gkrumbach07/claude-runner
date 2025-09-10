@@ -120,6 +120,7 @@ type ResearchSession struct {
 }
 
 type ResearchSessionSpec struct {
+	Runner      string      `json:"runner"`
 	Prompt      string      `json:"prompt" binding:"required"`
 	WebsiteURL  string      `json:"websiteURL" binding:"required,url"`
 	DisplayName string      `json:"displayName"`
@@ -153,6 +154,7 @@ type ResearchSessionStatus struct {
 }
 
 type CreateResearchSessionRequest struct {
+	Runner      string       `json:"runner,omitempty"`
 	Prompt      string       `json:"prompt" binding:"required"`
 	WebsiteURL  string       `json:"websiteURL" binding:"required,url"`
 	DisplayName string       `json:"displayName,omitempty"`
@@ -263,6 +265,12 @@ func createResearchSession(c *gin.Context) {
 		timeout = *req.Timeout
 	}
 
+	// Default runner
+	runner := req.Runner
+	if runner == "" {
+		runner = "claude"
+	}
+
 	// Generate unique name
 	timestamp := time.Now().Unix()
 	name := fmt.Sprintf("research-session-%d", timestamp)
@@ -276,6 +284,7 @@ func createResearchSession(c *gin.Context) {
 			"namespace": namespace,
 		},
 		"spec": map[string]interface{}{
+			"runner":      runner,
 			"prompt":      req.Prompt,
 			"websiteURL":  req.WebsiteURL,
 			"displayName": req.DisplayName,
@@ -488,6 +497,10 @@ func stopResearchSession(c *gin.Context) {
 // Helper functions for parsing
 func parseSpec(spec map[string]interface{}) ResearchSessionSpec {
 	result := ResearchSessionSpec{}
+
+	if runner, ok := spec["runner"].(string); ok {
+		result.Runner = runner
+	}
 
 	if prompt, ok := spec["prompt"].(string); ok {
 		result.Prompt = prompt
